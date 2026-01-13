@@ -1,5 +1,82 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import fs from 'fs'
+import path from 'path'
+
+// 数据文件路径
+const DATA_FILE_PATH = path.join(process.cwd(), 'data', 'jiwo-data.json')
+
+// 确保数据目录存在
+function ensureDataDir() {
+  const dataDir = path.dirname(DATA_FILE_PATH)
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true })
+  }
+}
+
+/**
+ * 数据持久化插件
+ * 将数据保存到服务器文件系统，解决 localStorage 域名隔离问题
+ */
+function dataStoragePlugin() {
+  return {
+    name: 'data-storage',
+    configureServer(server) {
+      // 读取服务器数据
+      server.middlewares.use(async (req, res, next) => {
+        if (req.url === '/api/data' && req.method === 'GET') {
+          try {
+            ensureDataDir()
+            if (fs.existsSync(DATA_FILE_PATH)) {
+              const data = fs.readFileSync(DATA_FILE_PATH, 'utf-8')
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.end(data)
+            } else {
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ exists: false }))
+            }
+          } catch (error) {
+            console.error('读取数据失败:', error)
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: error.message }))
+          }
+          return
+        }
+
+        // 保存数据到服务器
+        if (req.url === '/api/data' && req.method === 'POST') {
+          let body = ''
+          req.on('data', chunk => {
+            body += chunk.toString()
+          })
+          req.on('end', () => {
+            try {
+              ensureDataDir()
+              // 验证 JSON 格式
+              JSON.parse(body)
+              fs.writeFileSync(DATA_FILE_PATH, body, 'utf-8')
+              console.log(`[数据同步] ${new Date().toLocaleTimeString()} - 数据已保存到服务器`)
+              res.statusCode = 200
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ success: true }))
+            } catch (error) {
+              console.error('保存数据失败:', error)
+              res.statusCode = 500
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ error: error.message }))
+            }
+          })
+          return
+        }
+
+        next()
+      })
+    }
+  }
+}
 
 /**
  * 搜索代理插件
@@ -98,6 +175,7 @@ function parseSearchResults(html) {
 export default defineConfig({
   plugins: [
     react(),
+    dataStoragePlugin(),
     searchProxyPlugin()
   ],
   server: {
@@ -112,6 +190,12 @@ export default defineConfig({
         headers: {
           'Origin': 'https://dashscope.aliyuncs.com'
         }
+      },
+      // 代理 Ollama API 请求（解决 CORS 问题）
+      '/api/ollama': {
+        target: 'http://localhost:11434',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/ollama/, '')
       }
     }
   }

@@ -33,6 +33,21 @@ export const NOTE_SOURCE = {
   EXTERNAL_TRIGGER: 'external_trigger'   // 外部主题触发的 AI 问答
 }
 
+// AI 回复触发方式
+export const AI_TRIGGER = {
+  AUTO: 'auto',       // 自动语义判断触发
+  ASK: 'ask',         // 问一问内发送触发
+  MENTION: 'mention'  // @AI 强制触发
+}
+
+// @AI 触发的匹配模式
+export const AI_MENTION_PATTERNS = [
+  /@AI/i,
+  /@阿森/,
+  /@智能助手/,
+  /@小助手/
+]
+
 // localStorage 键名
 export const STORAGE_KEYS = {
   TOPICS: 'jiwo-topics',
@@ -41,7 +56,27 @@ export const STORAGE_KEYS = {
   ASK_CONVERSATIONS: 'jiwo-ask-conversations',
   NOTE_RELATIONS: 'jiwo-note-relations',
   REFERENCES: 'jiwo-references',  // 引用关系
-  VERSION: 'jiwo-data-version'
+  EMBEDDINGS: 'jiwo-embeddings',  // 快记嵌入向量
+  CLUSTERS: 'jiwo-clusters',      // AI聚类
+  CLASSIFICATION_QUEUE: 'jiwo-classification-queue',  // 分类任务队列
+  AI_SETTINGS: 'jiwo-ai-settings',  // AI设置
+  VERSION: 'jiwo-data-version',
+  // 快照相关
+  SNAPSHOT: 'jiwo-snapshot',  // 导入前快照
+  SNAPSHOT_META: 'jiwo-snapshot-meta'  // 快照元信息
+}
+
+// 分类任务状态
+export const CLASSIFICATION_STATUS = {
+  PENDING: 'pending',
+  PROCESSING: 'processing',
+  DONE: 'done',
+  ERROR: 'error'
+}
+
+// 默认AI设置（云端 API，无需本地配置）
+export const DEFAULT_AI_SETTINGS = {
+  autoClassify: true  // 新建快记时自动分类
 }
 
 // 当前数据版本（用于未来数据迁移）
@@ -80,7 +115,7 @@ export function createTopic({ id, title }) {
  * @property {string} createdAt - 创建时间 (ISO 8601)
  * @property {string} updatedAt - 更新时间 (ISO 8601)
  */
-export function createNote({ topicId, content, images = [], source = NOTE_SOURCE.NORMAL }) {
+export function createNote({ topicId, content, images = [], source = NOTE_SOURCE.NORMAL, aiStatus = AI_STATUS.NONE }) {
   const now = new Date().toISOString()
   return {
     id: crypto.randomUUID(),
@@ -88,7 +123,7 @@ export function createNote({ topicId, content, images = [], source = NOTE_SOURCE
     content: content || '',
     images: images || [],
     source: source,
-    aiStatus: AI_STATUS.NONE,
+    aiStatus: aiStatus,
     aiResponseId: null,
     createdAt: now,
     updatedAt: now
@@ -102,18 +137,20 @@ export function createNote({ topicId, content, images = [], source = NOTE_SOURCE
  * @property {string} noteId - 关联的快记 ID
  * @property {string} content - AI 回答内容
  * @property {string} model - 使用的模型名称
+ * @property {string} trigger - 触发方式 (AI_TRIGGER)
  * @property {boolean} usedWebSearch - 是否使用了联网搜索
  * @property {string[]} sourceNoteIds - 参考的历史快记 ID 列表
  * @property {Object|null} webSearchResult - 联网搜索结果摘要
  * @property {Object} metadata - 元数据（token 用量、耗时等）
  * @property {string} createdAt - 创建时间 (ISO 8601)
  */
-export function createAIResponse({ noteId, content, model, usedWebSearch = false, sourceNoteIds = [], webSearchResult = null, metadata = {} }) {
+export function createAIResponse({ noteId, content, model, trigger = 'auto', usedWebSearch = false, sourceNoteIds = [], webSearchResult = null, metadata = {} }) {
   return {
     id: crypto.randomUUID(),
     noteId: noteId,
     content: content || '',
     model: model || 'unknown',
+    trigger: trigger,  // 'auto' | 'ask' | 'mention'
     usedWebSearch: usedWebSearch,
     sourceNoteIds: sourceNoteIds,
     webSearchResult: webSearchResult,
@@ -195,6 +232,115 @@ export function validateReference(ref) {
     typeof ref.sourceNoteId === 'string' &&
     typeof ref.targetNoteId === 'string' &&
     typeof ref.createdAt === 'string'
+  )
+}
+
+// ==================== AI 分类相关数据结构 ====================
+
+/**
+ * 快记嵌入 NoteEmbedding
+ * 存储快记的向量嵌入
+ * @typedef {Object} NoteEmbedding
+ * @property {string} id - 唯一标识
+ * @property {string} noteId - 关联的快记 ID
+ * @property {number[]} embedding - 向量数组
+ * @property {string} model - 使用的模型名称
+ * @property {string} createdAt - 创建时间 (ISO 8601)
+ */
+export function createNoteEmbedding({ noteId, embedding, model }) {
+  return {
+    id: crypto.randomUUID(),
+    noteId: noteId,
+    embedding: embedding || [],
+    model: model || 'unknown',
+    createdAt: new Date().toISOString()
+  }
+}
+
+/**
+ * 聚类 Cluster
+ * 存储AI聚类信息
+ * @typedef {Object} Cluster
+ * @property {string} id - 唯一标识
+ * @property {string} name - AI生成的主题名称
+ * @property {number[]} centroid - 聚类中心向量
+ * @property {string[]} noteIds - 属于该聚类的快记ID列表
+ * @property {string|null} parentId - 父聚类ID（层级结构）
+ * @property {string} createdAt - 创建时间 (ISO 8601)
+ * @property {string} updatedAt - 更新时间 (ISO 8601)
+ */
+export function createCluster({ name, centroid, noteIds = [], parentId = null }) {
+  const now = new Date().toISOString()
+  return {
+    id: crypto.randomUUID(),
+    name: name || '未命名聚类',
+    centroid: centroid || [],
+    noteIds: noteIds,
+    parentId: parentId,
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
+/**
+ * 分类任务 ClassificationTask
+ * 分类任务队列项
+ * @typedef {Object} ClassificationTask
+ * @property {string} id - 唯一标识
+ * @property {string} noteId - 待分类的快记 ID
+ * @property {string} status - 任务状态 (CLASSIFICATION_STATUS)
+ * @property {string|null} error - 错误信息
+ * @property {string} createdAt - 创建时间 (ISO 8601)
+ * @property {string|null} completedAt - 完成时间 (ISO 8601)
+ */
+export function createClassificationTask({ noteId }) {
+  return {
+    id: crypto.randomUUID(),
+    noteId: noteId,
+    status: CLASSIFICATION_STATUS.PENDING,
+    error: null,
+    createdAt: new Date().toISOString(),
+    completedAt: null
+  }
+}
+
+/**
+ * 验证 NoteEmbedding 数据结构
+ */
+export function validateNoteEmbedding(embedding) {
+  return (
+    embedding &&
+    typeof embedding.id === 'string' &&
+    typeof embedding.noteId === 'string' &&
+    Array.isArray(embedding.embedding) &&
+    typeof embedding.createdAt === 'string'
+  )
+}
+
+/**
+ * 验证 Cluster 数据结构
+ */
+export function validateCluster(cluster) {
+  return (
+    cluster &&
+    typeof cluster.id === 'string' &&
+    typeof cluster.name === 'string' &&
+    Array.isArray(cluster.centroid) &&
+    Array.isArray(cluster.noteIds) &&
+    typeof cluster.createdAt === 'string'
+  )
+}
+
+/**
+ * 验证 ClassificationTask 数据结构
+ */
+export function validateClassificationTask(task) {
+  return (
+    task &&
+    typeof task.id === 'string' &&
+    typeof task.noteId === 'string' &&
+    typeof task.status === 'string' &&
+    typeof task.createdAt === 'string'
   )
 }
 

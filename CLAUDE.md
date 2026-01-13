@@ -23,6 +23,14 @@
   - 自动数据迁移
   - 设置面板 UI
 
+### AI 自动分类功能
+- [x] 数据结构扩展（NoteEmbedding, Cluster, ClassificationTask）
+- [x] Ollama Embedding 服务集成
+- [x] 增量分类引擎（相似度聚类）
+- [x] 自动分类触发（新建快记时）
+- [x] 手动重新分类功能
+- [x] 设置面板 AI 区域（状态、开关、统计）
+
 ### 问一问重构进度
 - [x] 第1步：数据持久化与导入导出
 - [ ] 第2步：接入真实 AI API
@@ -39,15 +47,20 @@ jiwo-quicknote/
 ├── vite.config.js
 ├── CLAUDE.md
 ├── src/
-│   ├── main.jsx           # 入口文件
-│   ├── App.jsx             # 主组件
-│   ├── App.css             # 主样式
-│   ├── index.css           # 全局样式
-│   ├── data/               # 数据层
-│   │   ├── index.js        # 统一导出
-│   │   ├── schema.js       # 数据结构定义
-│   │   └── storage.js      # 存储管理
-│   └── components/         # 组件
+│   ├── main.jsx               # 入口文件
+│   ├── App.jsx                # 主组件
+│   ├── App.css                # 主样式
+│   ├── index.css              # 全局样式
+│   ├── data/                  # 数据层
+│   │   ├── index.js           # 统一导出
+│   │   ├── schema.js          # 数据结构定义
+│   │   └── storage.js         # 存储管理
+│   ├── services/              # 服务层
+│   │   ├── embedding.js       # Ollama Embedding 服务
+│   │   ├── incrementalClassifier.js  # 增量分类引擎
+│   │   ├── ai.js              # AI 服务（DashScope）
+│   │   └── classifier.js      # 分类服务（旧版）
+│   └── components/            # 组件
 │       └── SettingsPanel.jsx  # 设置面板
 ```
 
@@ -59,6 +72,11 @@ jiwo-quicknote/
 - `jiwo-ai-responses` - AI 回答列表（独立存储）
 - `jiwo-ask-conversations` - 问一问会话
 - `jiwo-note-relations` - 快记相关性关系
+- `jiwo-references` - 快记引用关系
+- `jiwo-embeddings` - 快记嵌入向量
+- `jiwo-clusters` - AI聚类数据
+- `jiwo-classification-queue` - 分类任务队列
+- `jiwo-ai-settings` - AI设置
 - `jiwo-data-version` - 数据版本号
 
 ### Topic 主题
@@ -116,6 +134,42 @@ jiwo-quicknote/
 }
 ```
 
+### NoteEmbedding 快记嵌入
+```json
+{
+  "id": "uuid",
+  "noteId": "关联的快记ID",
+  "embedding": [0.1, 0.2, ...],
+  "model": "qwen3-embedding",
+  "createdAt": "2026-01-13T06:00:00.000Z"
+}
+```
+
+### Cluster 聚类
+```json
+{
+  "id": "uuid",
+  "name": "聚类名称",
+  "centroid": [0.1, 0.2, ...],
+  "noteIds": ["快记ID列表"],
+  "parentId": "父聚类ID | null",
+  "createdAt": "2026-01-13T06:00:00.000Z",
+  "updatedAt": "2026-01-13T06:00:00.000Z"
+}
+```
+
+### ClassificationTask 分类任务
+```json
+{
+  "id": "uuid",
+  "noteId": "待分类快记ID",
+  "status": "pending | processing | done | error",
+  "error": "错误信息 | null",
+  "createdAt": "2026-01-13T06:00:00.000Z",
+  "completedAt": "2026-01-13T06:00:00.000Z | null"
+}
+```
+
 ## 常量定义
 ```javascript
 // 默认主题 ID
@@ -163,6 +217,17 @@ npm run dev
 ---
 
 ## 开发日志
+
+### 2026-01-13 AI 自动分类功能
+- 实现基于 Ollama + Qwen3-Embedding 的向量嵌入
+- 增量聚类算法：新快记自动分配到相似聚类或创建新聚类
+- 分类任务队列：异步处理，不阻塞 UI
+- 设置面板 AI 区域：Ollama 状态检测、自动分类开关、统计信息、手动重新分类
+- 聚类合并与分裂：相似度超过阈值自动合并，过大自动分裂
+
+新增文件：
+- `src/services/embedding.js` - Ollama Embedding 服务
+- `src/services/incrementalClassifier.js` - 增量分类引擎
 
 ### 2026-01-13 数据层重构
 - 完成第1步：数据持久化与导入导出

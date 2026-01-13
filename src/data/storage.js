@@ -12,12 +12,117 @@ import {
   STORAGE_KEYS,
   DATA_VERSION,
   DEFAULT_TOPIC_ID,
+  DEFAULT_AI_SETTINGS,
   AI_STATUS,
   NOTE_SOURCE,
   createTopic,
   createNote,
   validateExportData
 } from './schema.js'
+
+// ==================== 服务器同步 ====================
+
+// 同步锁，防止并发同步
+let isSyncing = false
+let syncPending = false
+
+/**
+ * 将所有数据同步到服务器
+ * 使用防抖和锁机制避免频繁写入
+ */
+async function syncToServer() {
+  if (isSyncing) {
+    syncPending = true
+    return
+  }
+
+  isSyncing = true
+
+  try {
+    const allData = {
+      version: DATA_VERSION,
+      syncedAt: new Date().toISOString(),
+      topics: readFromStorage(STORAGE_KEYS.TOPICS) || [],
+      notes: readFromStorage(STORAGE_KEYS.NOTES) || [],
+      aiResponses: readFromStorage(STORAGE_KEYS.AI_RESPONSES) || [],
+      askConversations: readFromStorage(STORAGE_KEYS.ASK_CONVERSATIONS) || [],
+      noteRelations: readFromStorage(STORAGE_KEYS.NOTE_RELATIONS) || [],
+      references: readFromStorage(STORAGE_KEYS.REFERENCES) || [],
+      embeddings: readFromStorage(STORAGE_KEYS.EMBEDDINGS) || [],
+      clusters: readFromStorage(STORAGE_KEYS.CLUSTERS) || [],
+      classificationQueue: readFromStorage(STORAGE_KEYS.CLASSIFICATION_QUEUE) || [],
+      aiSettings: readFromStorage(STORAGE_KEYS.AI_SETTINGS) || {}
+    }
+
+    const response = await fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(allData)
+    })
+
+    if (!response.ok) {
+      console.error('服务器同步失败:', response.statusText)
+    }
+  } catch (error) {
+    console.error('服务器同步出错:', error)
+  } finally {
+    isSyncing = false
+    if (syncPending) {
+      syncPending = false
+      // 延迟执行下一次同步
+      setTimeout(syncToServer, 500)
+    }
+  }
+}
+
+// 防抖同步（500ms 后执行）
+let syncTimeout = null
+function debouncedSync() {
+  if (syncTimeout) {
+    clearTimeout(syncTimeout)
+  }
+  syncTimeout = setTimeout(syncToServer, 500)
+}
+
+/**
+ * 从服务器获取数据并恢复到 localStorage
+ */
+export async function fetchFromServer() {
+  try {
+    const response = await fetch('/api/data')
+    if (!response.ok) {
+      console.warn('服务器数据获取失败')
+      return false
+    }
+
+    const data = await response.json()
+
+    // 如果服务器没有数据
+    if (data.exists === false) {
+      console.log('服务器暂无数据，使用本地数据')
+      return false
+    }
+
+    // 恢复数据到 localStorage
+    if (data.topics) writeToStorageLocal(STORAGE_KEYS.TOPICS, data.topics)
+    if (data.notes) writeToStorageLocal(STORAGE_KEYS.NOTES, data.notes)
+    if (data.aiResponses) writeToStorageLocal(STORAGE_KEYS.AI_RESPONSES, data.aiResponses)
+    if (data.askConversations) writeToStorageLocal(STORAGE_KEYS.ASK_CONVERSATIONS, data.askConversations)
+    if (data.noteRelations) writeToStorageLocal(STORAGE_KEYS.NOTE_RELATIONS, data.noteRelations)
+    if (data.references) writeToStorageLocal(STORAGE_KEYS.REFERENCES, data.references)
+    if (data.embeddings) writeToStorageLocal(STORAGE_KEYS.EMBEDDINGS, data.embeddings)
+    if (data.clusters) writeToStorageLocal(STORAGE_KEYS.CLUSTERS, data.clusters)
+    if (data.classificationQueue) writeToStorageLocal(STORAGE_KEYS.CLASSIFICATION_QUEUE, data.classificationQueue)
+    if (data.aiSettings) writeToStorageLocal(STORAGE_KEYS.AI_SETTINGS, data.aiSettings)
+    if (data.version) writeToStorageLocal(STORAGE_KEYS.VERSION, data.version)
+
+    console.log(`[数据同步] 已从服务器恢复数据 (${data.notes?.length || 0} 条快记)`)
+    return true
+  } catch (error) {
+    console.error('从服务器获取数据失败:', error)
+    return false
+  }
+}
 
 // ==================== 基础读写操作 ====================
 
@@ -35,9 +140,9 @@ function readFromStorage(key) {
 }
 
 /**
- * 写入数据到 localStorage
+ * 写入数据到 localStorage（仅本地，不触发同步）
  */
-function writeToStorage(key, data) {
+function writeToStorageLocal(key, data) {
   try {
     localStorage.setItem(key, JSON.stringify(data))
     return true
@@ -45,6 +150,18 @@ function writeToStorage(key, data) {
     console.error(`写入 ${key} 失败:`, error)
     return false
   }
+}
+
+/**
+ * 写入数据到 localStorage 并同步到服务器
+ */
+function writeToStorage(key, data) {
+  const result = writeToStorageLocal(key, data)
+  if (result) {
+    // 触发服务器同步（防抖）
+    debouncedSync()
+  }
+  return result
 }
 
 // ==================== 数据迁移 ====================
@@ -170,7 +287,7 @@ function migrateOldData() {
 // ==================== 初始化 ====================
 
 /**
- * 初始化数据存储
+ * 初始化数据存储（同步版本，用于立即返回数据）
  * 返回所有数据
  */
 export function initializeStorage() {
@@ -190,12 +307,12 @@ export function initializeStorage() {
   if (!hasDefaultTopic) {
     const defaultTopic = createTopic({ id: DEFAULT_TOPIC_ID, title: '我的快记' })
     topics = [defaultTopic, ...topics]
-    writeToStorage(STORAGE_KEYS.TOPICS, topics)
+    writeToStorageLocal(STORAGE_KEYS.TOPICS, topics)
   }
 
   // 确保版本号已设置
   if (!readFromStorage(STORAGE_KEYS.VERSION)) {
-    writeToStorage(STORAGE_KEYS.VERSION, DATA_VERSION)
+    writeToStorageLocal(STORAGE_KEYS.VERSION, DATA_VERSION)
   }
 
   return {
@@ -206,6 +323,18 @@ export function initializeStorage() {
     noteRelations,
     references
   }
+}
+
+/**
+ * 异步初始化：先从服务器获取数据，再返回
+ * 这个函数应该在应用启动时调用
+ */
+export async function initializeStorageAsync() {
+  // 先尝试从服务器获取数据
+  await fetchFromServer()
+
+  // 然后执行正常初始化
+  return initializeStorage()
 }
 
 // ==================== CRUD 操作 ====================
@@ -262,6 +391,294 @@ export function saveReferences(references) {
 
 export function loadReferences() {
   return readFromStorage(STORAGE_KEYS.REFERENCES) || []
+}
+
+// ==================== AI 分类相关存储 ====================
+
+// Embeddings (快记嵌入向量)
+export function saveEmbeddings(embeddings) {
+  return writeToStorage(STORAGE_KEYS.EMBEDDINGS, embeddings)
+}
+
+export function loadEmbeddings() {
+  return readFromStorage(STORAGE_KEYS.EMBEDDINGS) || []
+}
+
+// 获取单个快记的嵌入
+export function getEmbeddingByNoteId(noteId) {
+  const embeddings = loadEmbeddings()
+  return embeddings.find(e => e.noteId === noteId) || null
+}
+
+// 添加或更新单个嵌入
+export function upsertEmbedding(embedding) {
+  const embeddings = loadEmbeddings()
+  const existingIndex = embeddings.findIndex(e => e.noteId === embedding.noteId)
+  if (existingIndex >= 0) {
+    embeddings[existingIndex] = embedding
+  } else {
+    embeddings.push(embedding)
+  }
+  return saveEmbeddings(embeddings)
+}
+
+// 删除指定快记的嵌入
+export function deleteEmbeddingByNoteId(noteId) {
+  const embeddings = loadEmbeddings()
+  const filtered = embeddings.filter(e => e.noteId !== noteId)
+  return saveEmbeddings(filtered)
+}
+
+// Clusters (AI聚类)
+export function saveClusters(clusters) {
+  return writeToStorage(STORAGE_KEYS.CLUSTERS, clusters)
+}
+
+export function loadClusters() {
+  return readFromStorage(STORAGE_KEYS.CLUSTERS) || []
+}
+
+// 获取单个聚类
+export function getClusterById(clusterId) {
+  const clusters = loadClusters()
+  return clusters.find(c => c.id === clusterId) || null
+}
+
+// 添加或更新单个聚类
+export function upsertCluster(cluster) {
+  const clusters = loadClusters()
+  const existingIndex = clusters.findIndex(c => c.id === cluster.id)
+  if (existingIndex >= 0) {
+    clusters[existingIndex] = cluster
+  } else {
+    clusters.push(cluster)
+  }
+  return saveClusters(clusters)
+}
+
+// 删除聚类
+export function deleteCluster(clusterId) {
+  const clusters = loadClusters()
+  const filtered = clusters.filter(c => c.id !== clusterId)
+  return saveClusters(filtered)
+}
+
+// 从聚类中移除快记
+export function removeNoteFromCluster(noteId) {
+  const clusters = loadClusters()
+  let modified = false
+  clusters.forEach(cluster => {
+    const index = cluster.noteIds.indexOf(noteId)
+    if (index >= 0) {
+      cluster.noteIds.splice(index, 1)
+      cluster.updatedAt = new Date().toISOString()
+      modified = true
+    }
+  })
+  if (modified) {
+    return saveClusters(clusters)
+  }
+  return true
+}
+
+// Classification Queue (分类任务队列)
+export function saveClassificationQueue(queue) {
+  return writeToStorage(STORAGE_KEYS.CLASSIFICATION_QUEUE, queue)
+}
+
+export function loadClassificationQueue() {
+  return readFromStorage(STORAGE_KEYS.CLASSIFICATION_QUEUE) || []
+}
+
+// 添加任务到队列
+export function enqueueClassificationTask(task) {
+  const queue = loadClassificationQueue()
+  // 检查是否已存在相同 noteId 的 pending 任务
+  const existing = queue.find(t => t.noteId === task.noteId && t.status === 'pending')
+  if (!existing) {
+    queue.push(task)
+    return saveClassificationQueue(queue)
+  }
+  return true
+}
+
+// 获取下一个待处理任务
+export function getNextPendingTask() {
+  const queue = loadClassificationQueue()
+  return queue.find(t => t.status === 'pending') || null
+}
+
+// 更新任务状态
+export function updateTaskStatus(taskId, status, error = null) {
+  const queue = loadClassificationQueue()
+  const task = queue.find(t => t.id === taskId)
+  if (task) {
+    task.status = status
+    task.error = error
+    if (status === 'done' || status === 'error') {
+      task.completedAt = new Date().toISOString()
+    }
+    return saveClassificationQueue(queue)
+  }
+  return false
+}
+
+// 清理已完成的任务（保留最近100条）
+export function cleanupCompletedTasks() {
+  const queue = loadClassificationQueue()
+  const pending = queue.filter(t => t.status === 'pending' || t.status === 'processing')
+  const completed = queue.filter(t => t.status === 'done' || t.status === 'error')
+    .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))
+    .slice(0, 100)
+  return saveClassificationQueue([...pending, ...completed])
+}
+
+// 获取队列统计
+export function getQueueStats() {
+  const queue = loadClassificationQueue()
+  return {
+    total: queue.length,
+    pending: queue.filter(t => t.status === 'pending').length,
+    processing: queue.filter(t => t.status === 'processing').length,
+    done: queue.filter(t => t.status === 'done').length,
+    error: queue.filter(t => t.status === 'error').length
+  }
+}
+
+// AI Settings (AI设置)
+export function saveAISettings(settings) {
+  return writeToStorage(STORAGE_KEYS.AI_SETTINGS, settings)
+}
+
+export function loadAISettings() {
+  const saved = readFromStorage(STORAGE_KEYS.AI_SETTINGS)
+  return { ...DEFAULT_AI_SETTINGS, ...saved }
+}
+
+// 更新部分AI设置
+export function updateAISettings(partialSettings) {
+  const current = loadAISettings()
+  const updated = { ...current, ...partialSettings }
+  return saveAISettings(updated)
+}
+
+// ==================== 快照与回滚 ====================
+
+/**
+ * 创建当前数据的快照（用于导入前备份）
+ * @returns {Object} 快照结果
+ */
+export function createSnapshot() {
+  try {
+    const snapshotData = {
+      version: DATA_VERSION,
+      createdAt: new Date().toISOString(),
+      topics: loadTopics(),
+      notes: loadNotes(),
+      aiResponses: loadAIResponses(),
+      askConversations: loadAskConversations(),
+      noteRelations: loadNoteRelations(),
+      references: loadReferences(),
+      embeddings: loadEmbeddings(),
+      clusters: loadClusters()
+    }
+
+    // 保存快照数据
+    writeToStorage(STORAGE_KEYS.SNAPSHOT, snapshotData)
+
+    // 保存快照元信息
+    const meta = {
+      createdAt: snapshotData.createdAt,
+      notesCount: snapshotData.notes.length,
+      topicsCount: snapshotData.topics.length,
+      reason: 'import_backup'
+    }
+    writeToStorage(STORAGE_KEYS.SNAPSHOT_META, meta)
+
+    return {
+      success: true,
+      message: `快照创建成功：${meta.topicsCount} 个主题，${meta.notesCount} 条快记`,
+      meta
+    }
+  } catch (error) {
+    console.error('创建快照失败:', error)
+    return {
+      success: false,
+      error: '创建快照失败'
+    }
+  }
+}
+
+/**
+ * 获取快照元信息
+ * @returns {Object|null} 快照元信息
+ */
+export function getSnapshotMeta() {
+  return readFromStorage(STORAGE_KEYS.SNAPSHOT_META)
+}
+
+/**
+ * 检查是否有可用快照
+ * @returns {boolean}
+ */
+export function hasSnapshot() {
+  const meta = getSnapshotMeta()
+  const snapshot = readFromStorage(STORAGE_KEYS.SNAPSHOT)
+  return !!(meta && snapshot)
+}
+
+/**
+ * 从快照回滚数据
+ * @returns {Object} 回滚结果
+ */
+export function rollbackFromSnapshot() {
+  try {
+    const snapshot = readFromStorage(STORAGE_KEYS.SNAPSHOT)
+
+    if (!snapshot) {
+      return {
+        success: false,
+        error: '没有可用的快照'
+      }
+    }
+
+    // 恢复所有数据
+    saveTopics(snapshot.topics || [])
+    saveNotes(snapshot.notes || [])
+    saveAIResponses(snapshot.aiResponses || [])
+    saveAskConversations(snapshot.askConversations || [])
+    saveNoteRelations(snapshot.noteRelations || [])
+    saveReferences(snapshot.references || [])
+    saveEmbeddings(snapshot.embeddings || [])
+    saveClusters(snapshot.clusters || [])
+
+    // 清除快照（回滚后不再需要）
+    localStorage.removeItem(STORAGE_KEYS.SNAPSHOT)
+    localStorage.removeItem(STORAGE_KEYS.SNAPSHOT_META)
+
+    return {
+      success: true,
+      message: `数据已回滚到 ${new Date(snapshot.createdAt).toLocaleString('zh-CN')} 的状态`,
+      stats: {
+        topics: (snapshot.topics || []).length,
+        notes: (snapshot.notes || []).length
+      }
+    }
+  } catch (error) {
+    console.error('回滚失败:', error)
+    return {
+      success: false,
+      error: '回滚失败'
+    }
+  }
+}
+
+/**
+ * 清除快照
+ */
+export function clearSnapshot() {
+  localStorage.removeItem(STORAGE_KEYS.SNAPSHOT)
+  localStorage.removeItem(STORAGE_KEYS.SNAPSHOT_META)
 }
 
 // ==================== 导入导出 ====================
@@ -423,29 +840,37 @@ export function importFromFile(file, options = { merge: false }) {
 /**
  * 解析时间戳字符串
  * 支持多种格式：
+ * - 2024-02-21 08:21
  * - 2024-01-13 10:30:00
  * - 2024/01/13 10:30
- * - 2024年1月13日 10:30
+ * - 2024年8月22日 17:29:29
+ * - 2025年8月22日 17:29
  * - [2024-01-13 10:30]
- * - 10:30 (当天)
+ * - ### 2024-03-01 (标题形式的日期)
+ * - 2024-03-01 (只有日期)
+ *
+ * 注意：时间戳是快记的创建时间，不是内容本身
  */
 function parseTimestamp(text) {
-  // 完整日期时间格式
-  const patterns = [
+  // 移除 markdown 标题标记
+  const cleanText = text.replace(/^#+\s*/, '').trim()
+
+  // 完整日期时间格式（带时间）
+  const dateTimePatterns = [
     // 2024-01-13 10:30:00 或 2024-01-13 10:30
-    /(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/,
+    { pattern: /(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/, hasTime: true },
     // 2024/01/13 10:30
-    /(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})/,
-    // 2024年1月13日 10:30
-    /(\d{4})年(\d{1,2})月(\d{1,2})日\s*(\d{1,2}):(\d{2})/,
+    { pattern: /(\d{4})\/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/, hasTime: true },
+    // 2024年1月13日 10:30:00 或 2024年1月13日 10:30
+    { pattern: /(\d{4})年(\d{1,2})月(\d{1,2})日\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/, hasTime: true },
     // [2024-01-13 10:30]
-    /\[(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})\]/,
+    { pattern: /\[(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\]/, hasTime: true },
   ]
 
-  for (const pattern of patterns) {
-    const match = text.match(pattern)
+  for (const { pattern, hasTime } of dateTimePatterns) {
+    const match = cleanText.match(pattern)
     if (match) {
-      const [, year, month, day, hour, minute, second = '0'] = match
+      const [, year, month, day, hour = '0', minute = '0', second = '0'] = match
       const date = new Date(
         parseInt(year),
         parseInt(month) - 1,
@@ -460,31 +885,104 @@ function parseTimestamp(text) {
     }
   }
 
-  // 只有时间的格式 (HH:MM)
-  const timeOnlyMatch = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
-  if (timeOnlyMatch) {
-    const [, hour, minute, second = '0'] = timeOnlyMatch
-    const date = new Date()
-    date.setHours(parseInt(hour), parseInt(minute), parseInt(second), 0)
-    return date.toISOString()
+  // 只有日期格式（无时间）
+  const dateOnlyPatterns = [
+    // 2024-03-01
+    /^(\d{4})-(\d{1,2})-(\d{1,2})$/,
+    // 2024/03/01
+    /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/,
+    // 2024年3月1日
+    /^(\d{4})年(\d{1,2})月(\d{1,2})日$/,
+  ]
+
+  for (const pattern of dateOnlyPatterns) {
+    const match = cleanText.match(pattern)
+    if (match) {
+      const [, year, month, day] = match
+      const date = new Date(
+        parseInt(year),
+        parseInt(month) - 1,
+        parseInt(day),
+        0, 0, 0
+      )
+      if (!isNaN(date.getTime())) {
+        return date.toISOString()
+      }
+    }
   }
 
   return null
 }
 
 /**
- * 检查一行是否是时间戳行
+ * 从行中提取时间戳（返回时间戳和剩余内容）
+ * @param {string} line - 原始行
+ * @returns {Object} { timestamp: string|null, content: string }
+ */
+function extractTimestampFromLine(line) {
+  const trimmed = line.trim()
+
+  // 模式1：整行是时间戳（可能有 markdown 标题标记）
+  const cleanLine = trimmed.replace(/^#+\s*/, '')
+  const fullTimestamp = parseTimestamp(cleanLine)
+  if (fullTimestamp && cleanLine === trimmed.replace(/^#+\s*/, '').replace(/\[|\]/g, '')) {
+    return { timestamp: fullTimestamp, content: '' }
+  }
+
+  // 模式2：时间戳在行首，后面跟内容
+  // 例如：2024-02-21 08:21 这是内容
+  const timestampPrefixPatterns = [
+    /^(\d{4}[-\/]\d{1,2}[-\/]\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)$/,
+    /^(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}:\d{2}(?::\d{2})?)\s+(.+)$/,
+    /^(\[\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?\])\s*(.+)$/,
+  ]
+
+  for (const pattern of timestampPrefixPatterns) {
+    const match = trimmed.match(pattern)
+    if (match) {
+      const [, timestampPart, contentPart] = match
+      const timestamp = parseTimestamp(timestampPart)
+      if (timestamp) {
+        return { timestamp, content: contentPart.trim() }
+      }
+    }
+  }
+
+  // 模式3：markdown 标题形式的日期
+  // 例如：### 2024-03-01
+  const headerDateMatch = trimmed.match(/^#+\s*(\d{4}[-\/]\d{1,2}[-\/]\d{1,2})$/)
+  if (headerDateMatch) {
+    const timestamp = parseTimestamp(headerDateMatch[1])
+    if (timestamp) {
+      return { timestamp, content: '' }
+    }
+  }
+
+  // 没有检测到时间戳
+  return { timestamp: null, content: trimmed }
+}
+
+/**
+ * 检查一行是否是纯时间戳行（整行只是时间戳，没有其他内容）
  */
 function isTimestampLine(line) {
   const trimmed = line.trim()
-  // 检查是否整行都是时间戳
+  if (!trimmed) return false
+
+  // 移除 markdown 标题标记
+  const cleanLine = trimmed.replace(/^#+\s*/, '')
+
+  // 检查是否整行都是时间戳（或标题形式的日期）
   const fullPatterns = [
+    // 带时间的格式
     /^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}\s+\d{1,2}:\d{2}(:\d{2})?$/,
-    /^\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}:\d{2}$/,
-    /^\[\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}\]$/,
-    /^\d{1,2}:\d{2}(:\d{2})?$/,
+    /^\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}:\d{2}(:\d{2})?$/,
+    /^\[\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}(:\d{2})?\]$/,
+    // 只有日期的格式
+    /^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}$/,
+    /^\d{4}年\d{1,2}月\d{1,2}日$/,
   ]
-  return fullPatterns.some(p => p.test(trimmed))
+  return fullPatterns.some(p => p.test(cleanLine))
 }
 
 /**

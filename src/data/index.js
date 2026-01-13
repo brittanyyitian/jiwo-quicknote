@@ -11,8 +11,12 @@ export {
   ASK_TOPIC_ID,
   AI_STATUS,
   NOTE_SOURCE,
+  AI_TRIGGER,
+  AI_MENTION_PATTERNS,
   STORAGE_KEYS,
   DATA_VERSION,
+  CLASSIFICATION_STATUS,
+  DEFAULT_AI_SETTINGS,
 
   // 创建函数
   createTopic,
@@ -21,19 +25,27 @@ export {
   createAskConversation,
   createNoteRelation,
   createReference,
+  createNoteEmbedding,
+  createCluster,
+  createClassificationTask,
 
   // 验证函数
   validateTopic,
   validateNote,
   validateAIResponse,
   validateReference,
-  validateExportData
+  validateExportData,
+  validateNoteEmbedding,
+  validateCluster,
+  validateClassificationTask
 } from './schema.js'
 
 // Storage - 存储操作
 export {
   // 初始化
   initializeStorage,
+  initializeStorageAsync,
+  fetchFromServer,
 
   // Topics CRUD
   saveTopics,
@@ -59,11 +71,48 @@ export {
   saveReferences,
   loadReferences,
 
+  // Embeddings CRUD (快记嵌入向量)
+  saveEmbeddings,
+  loadEmbeddings,
+  getEmbeddingByNoteId,
+  upsertEmbedding,
+  deleteEmbeddingByNoteId,
+
+  // Clusters CRUD (AI聚类)
+  saveClusters,
+  loadClusters,
+  getClusterById,
+  upsertCluster,
+  deleteCluster,
+  removeNoteFromCluster,
+
+  // Classification Queue (分类任务队列)
+  saveClassificationQueue,
+  loadClassificationQueue,
+  enqueueClassificationTask,
+  getNextPendingTask,
+  updateTaskStatus,
+  cleanupCompletedTasks,
+  getQueueStats,
+
+  // AI Settings (AI设置)
+  saveAISettings,
+  loadAISettings,
+  updateAISettings,
+
+  // 快照与回滚
+  createSnapshot,
+  getSnapshotMeta,
+  hasSnapshot,
+  rollbackFromSnapshot,
+  clearSnapshot,
+
   // 导入导出
   exportAllData,
   downloadExport,
   importData,
   importFromFile,
+  importMarkdown,
 
   // 工具函数
   clearAllData,
