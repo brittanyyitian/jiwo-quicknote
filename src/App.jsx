@@ -181,6 +181,64 @@ function App() {
   // 账户悬浮卡片
   const [showAccountCard, setShowAccountCard] = useState(false)
 
+  // 记忆萃取（关系提取）
+  const [showRelations, setShowRelations] = useState(false)
+  const [selectedRelation, setSelectedRelation] = useState(null)
+
+  // Mock 关系数据
+  const mockRelations = [
+    {
+      id: 'r1',
+      type: 'person',
+      name: '张三',
+      avatar: null,
+      description: '大学同学，现在在腾讯工作',
+      noteCount: 12,
+      lastMentionedAt: '2026-01-12T10:30:00.000Z',
+      relatedNoteIds: ['note1', 'note2', 'note3']
+    },
+    {
+      id: 'r2',
+      type: 'person',
+      name: '李四',
+      avatar: null,
+      description: '产品经理，合作项目负责人',
+      noteCount: 8,
+      lastMentionedAt: '2026-01-11T14:20:00.000Z',
+      relatedNoteIds: ['note4', 'note5']
+    },
+    {
+      id: 'r3',
+      type: 'person',
+      name: '王芳',
+      avatar: null,
+      description: '设计师，经常一起讨论UI',
+      noteCount: 5,
+      lastMentionedAt: '2026-01-10T09:15:00.000Z',
+      relatedNoteIds: ['note6']
+    },
+    {
+      id: 'r4',
+      type: 'project',
+      name: '即我快记项目',
+      avatar: null,
+      description: '个人笔记应用开发',
+      noteCount: 23,
+      lastMentionedAt: '2026-01-13T08:00:00.000Z',
+      relatedNoteIds: ['note7', 'note8', 'note9']
+    },
+    {
+      id: 'r5',
+      type: 'topic',
+      name: 'AI 学习',
+      avatar: null,
+      description: '关于 AI 技术的学习笔记',
+      noteCount: 15,
+      lastMentionedAt: '2026-01-12T16:45:00.000Z',
+      relatedNoteIds: ['note10', 'note11']
+    }
+  ]
+
   // @ Mention 浮层
   const [showMentionPopover, setShowMentionPopover] = useState(false)
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0)
@@ -1443,6 +1501,22 @@ function App() {
           )}
         </div>
 
+        {/* 记忆萃取入口 - 只在普通模式下显示 */}
+        {!isAskMode && !showRelations && (
+          <div className="memory-extract-entry" onClick={() => setShowRelations(true)}>
+            <div className="memory-extract-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+              </svg>
+            </div>
+            <span className="memory-extract-text">记忆萃取</span>
+            <span className="memory-extract-hint">从快记中提取人物、项目等关系</span>
+            <svg className="memory-extract-arrow" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/>
+            </svg>
+          </div>
+        )}
+
         {/* 输入区 */}
         <div className={`input-bar ${extendingNote && !isAskMode ? 'extending-mode' : ''} ${isAskMode ? 'ask-mode' : ''}`}>
           {/* 延展提示条 - 问一问模式下不显示 */}
@@ -1987,7 +2061,212 @@ function App() {
         </>
       )}
 
-      {/* 9. 设置面板 */}
+      {/* 9. 记忆萃取面板 */}
+      {showRelations && (
+        <div className="relations-overlay" onClick={() => { setShowRelations(false); setSelectedRelation(null); }}>
+          <div className="relations-panel" onClick={e => e.stopPropagation()}>
+            {/* 关系列表视图 */}
+            {!selectedRelation && (
+              <>
+                <header className="relations-header">
+                  <button className="relations-back" onClick={() => setShowRelations(false)}>
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                    </svg>
+                  </button>
+                  <h2>记忆萃取</h2>
+                  <div className="relations-header-spacer"></div>
+                </header>
+
+                <div className="relations-content">
+                  <p className="relations-intro">
+                    从你的快记中识别出的人物、项目和话题
+                  </p>
+
+                  {/* 关系分类 */}
+                  <div className="relations-section">
+                    <h3 className="relations-section-title">
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                      </svg>
+                      人物
+                    </h3>
+                    <div className="relations-list">
+                      {mockRelations.filter(r => r.type === 'person').map(relation => (
+                        <div
+                          key={relation.id}
+                          className="relation-item"
+                          onClick={() => setSelectedRelation(relation)}
+                        >
+                          <div className="relation-avatar">
+                            {relation.avatar ? (
+                              <img src={relation.avatar} alt="" />
+                            ) : (
+                              <span>{relation.name[0]}</span>
+                            )}
+                          </div>
+                          <div className="relation-info">
+                            <div className="relation-name">{relation.name}</div>
+                            <div className="relation-desc">{relation.description}</div>
+                          </div>
+                          <div className="relation-meta">
+                            <span className="relation-count">{relation.noteCount} 条快记</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/>
+                            </svg>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="relations-section">
+                    <h3 className="relations-section-title">
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>
+                      </svg>
+                      项目
+                    </h3>
+                    <div className="relations-list">
+                      {mockRelations.filter(r => r.type === 'project').map(relation => (
+                        <div
+                          key={relation.id}
+                          className="relation-item"
+                          onClick={() => setSelectedRelation(relation)}
+                        >
+                          <div className="relation-avatar project">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>
+                            </svg>
+                          </div>
+                          <div className="relation-info">
+                            <div className="relation-name">{relation.name}</div>
+                            <div className="relation-desc">{relation.description}</div>
+                          </div>
+                          <div className="relation-meta">
+                            <span className="relation-count">{relation.noteCount} 条快记</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/>
+                            </svg>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="relations-section">
+                    <h3 className="relations-section-title">
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/>
+                      </svg>
+                      话题
+                    </h3>
+                    <div className="relations-list">
+                      {mockRelations.filter(r => r.type === 'topic').map(relation => (
+                        <div
+                          key={relation.id}
+                          className="relation-item"
+                          onClick={() => setSelectedRelation(relation)}
+                        >
+                          <div className="relation-avatar topic">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/>
+                            </svg>
+                          </div>
+                          <div className="relation-info">
+                            <div className="relation-name">{relation.name}</div>
+                            <div className="relation-desc">{relation.description}</div>
+                          </div>
+                          <div className="relation-meta">
+                            <span className="relation-count">{relation.noteCount} 条快记</span>
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/>
+                            </svg>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* 关系详情视图 */}
+            {selectedRelation && (
+              <>
+                <header className="relations-header">
+                  <button className="relations-back" onClick={() => setSelectedRelation(null)}>
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                    </svg>
+                  </button>
+                  <h2>{selectedRelation.name}</h2>
+                  <div className="relations-header-spacer"></div>
+                </header>
+
+                <div className="relation-detail">
+                  <div className="relation-detail-header">
+                    <div className={`relation-detail-avatar ${selectedRelation.type}`}>
+                      {selectedRelation.type === 'person' ? (
+                        selectedRelation.avatar ? (
+                          <img src={selectedRelation.avatar} alt="" />
+                        ) : (
+                          <span>{selectedRelation.name[0]}</span>
+                        )
+                      ) : (
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          {selectedRelation.type === 'project' ? (
+                            <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>
+                          ) : (
+                            <path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/>
+                          )}
+                        </svg>
+                      )}
+                    </div>
+                    <div className="relation-detail-info">
+                      <div className="relation-detail-name">{selectedRelation.name}</div>
+                      <div className="relation-detail-desc">{selectedRelation.description}</div>
+                      <div className="relation-detail-stats">
+                        <span className="relation-detail-count">{selectedRelation.noteCount} 条相关快记</span>
+                        <span className="relation-detail-time">
+                          最近提及：{new Date(selectedRelation.lastMentionedAt).toLocaleDateString('zh-CN')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relation-detail-notes">
+                    <h3>相关快记</h3>
+                    <div className="relation-notes-list">
+                      {/* Mock 相关快记 */}
+                      <div className="relation-note-item">
+                        <div className="relation-note-content">
+                          和{selectedRelation.name}讨论了新功能的设计方案，决定采用更简洁的交互方式...
+                        </div>
+                        <div className="relation-note-time">2026年1月12日</div>
+                      </div>
+                      <div className="relation-note-item">
+                        <div className="relation-note-content">
+                          {selectedRelation.name}提出了一个很好的建议，关于用户体验的优化...
+                        </div>
+                        <div className="relation-note-time">2026年1月10日</div>
+                      </div>
+                      <div className="relation-note-item">
+                        <div className="relation-note-content">
+                          今天和{selectedRelation.name}开了个会，主要讨论项目进度...
+                        </div>
+                        <div className="relation-note-time">2026年1月8日</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 10. 设置面板 */}
       <SettingsPanel
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
