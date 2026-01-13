@@ -2102,3 +2102,98 @@
   background: #fff1f0;
   border-radius: 6px;
 }
+
+.error-progress {
+  font-size: 13px;
+  color: #999;
+  margin-bottom: 16px;
+}
+
+.error-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+/* 进度状态 */
+.classification-progress {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.progress-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-icon svg {
+  width: 48px;
+  height: 48px;
+  color: #faad14;
+}
+
+.progress-icon .loading-spinner {
+  width: 48px;
+  height: 48px;
+  margin: 0;
+}
+
+.classification-progress h3 {
+  margin: 0 0 24px;
+  font-size: 18px;
+  color: #333;
+}
+
+.progress-bar-container {
+  margin-bottom: 16px;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #07c160 0%, #52c41a 100%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 14px;
+  color: #666;
+}
+
+.progress-detail {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  font-size: 13px;
+  color: #999;
+  margin-bottom: 24px;
+}
+
+.retry-count {
+  color: #faad14;
+}
+
+.progress-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.progress-hint {
+  font-size: 12px;
+  color: #999;
+  margin: 0;
+}

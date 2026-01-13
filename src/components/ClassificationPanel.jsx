@@ -2,54 +2,122 @@
  * 快记自动分类面板
  *
  * 功能：
- * 1. 显示分类预览
- * 2. 确认后执行分类
- * 3. 支持回滚
+ * 1. 异步后台任务 + 分批处理
+ * 2. 进度追踪与显示
+ * 3. 支持暂停/继续/重试
+ * 4. 确认后执行分类
+ * 5. 支持回滚
  */
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
-  generateClassificationPreview,
-  executeClassification,
-  createSnapshot,
-  restoreFromSnapshot
-} from '../services/classifier.js'
+  TASK_STATUS,
+  getTaskState,
+  startClassificationTask,
+  pauseTask,
+  retryTask,
+  clearTask,
+  mergeAndGroupResults,
+  getCachedBatchResults
+} from '../services/classificationTask.js'
+import { createSnapshot, restoreFromSnapshot } from '../services/classifier.js'
 import { createTopic } from '../data/schema.js'
 
 function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, saveTopics, saveNotes }) {
-  const [status, setStatus] = useState('idle')  // idle | loading | preview | executing | done | error
+  const [taskState, setTaskState] = useState(null)
   const [preview, setPreview] = useState(null)
-  const [error, setError] = useState(null)
   const [snapshot, setSnapshot] = useState(null)
   const [executionResult, setExecutionResult] = useState(null)
+  const [panelStatus, setPanelStatus] = useState('idle')  // idle | running | preview | executing | done | error
 
-  // 开始分类预览
+  // 初始化时加载任务状态
+  useEffect(() => {
+    if (isOpen) {
+      const state = getTaskState()
+      setTaskState(state)
+
+      // 如果有已完成的任务，显示预览
+      if (state.status === TASK_STATUS.COMPLETED) {
+        const cached = getCachedBatchResults()
+        if (cached.length > 0) {
+          const merged = mergeAndGroupResults(cached)
+          setPreview(merged)
+          setPanelStatus('preview')
+        }
+      } else if (state.status === TASK_STATUS.RUNNING || state.status === TASK_STATUS.PAUSED) {
+        setPanelStatus('running')
+      } else if (state.status === TASK_STATUS.ERROR) {
+        setPanelStatus('error')
+      }
+    }
+  }, [isOpen])
+
+  // 进度回调
+  const handleProgress = useCallback((state) => {
+    setTaskState({ ...state })
+
+    if (state.status === TASK_STATUS.COMPLETED) {
+      // 任务完成，生成预览
+      const merged = mergeAndGroupResults(state.batchResults)
+      setPreview(merged)
+      setPanelStatus('preview')
+    } else if (state.status === TASK_STATUS.ERROR) {
+      setPanelStatus('error')
+    } else if (state.status === TASK_STATUS.PAUSED) {
+      setPanelStatus('running')  // 保持在运行页面显示暂停状态
+    }
+  }, [])
+
+  // 开始分类
   const handleStartClassification = async () => {
-    setStatus('loading')
-    setError(null)
+    setPanelStatus('running')
     setPreview(null)
 
     try {
-      const result = await generateClassificationPreview(notes)
-
-      if (result.success) {
-        setPreview(result.preview)
-        setStatus('preview')
-      } else {
-        setError(result.error)
-        setStatus('error')
-      }
-    } catch (err) {
-      setError(err.message)
-      setStatus('error')
+      await startClassificationTask(notes, handleProgress)
+    } catch (error) {
+      console.error('分类任务失败:', error)
+      // 错误状态已在 handleProgress 中处理
     }
+  }
+
+  // 暂停任务
+  const handlePause = () => {
+    pauseTask()
+  }
+
+  // 继续任务
+  const handleResume = async () => {
+    try {
+      await startClassificationTask(notes, handleProgress)
+    } catch (error) {
+      console.error('继续任务失败:', error)
+    }
+  }
+
+  // 重试任务
+  const handleRetry = async () => {
+    setPanelStatus('running')
+    try {
+      await retryTask(notes, handleProgress)
+    } catch (error) {
+      console.error('重试失败:', error)
+    }
+  }
+
+  // 重新开始（清除缓存）
+  const handleRestart = () => {
+    clearTask()
+    setTaskState(null)
+    setPreview(null)
+    setPanelStatus('idle')
   }
 
   // 确认执行分类
   const handleConfirmClassification = () => {
     if (!preview) return
 
-    setStatus('executing')
+    setPanelStatus('executing')
 
     try {
       // 创建快照用于回滚
@@ -62,14 +130,13 @@ function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, sav
       const createdTopicIds = []
 
       for (const topicPreview of preview.topics) {
-        // 跳过"默认"主题，不重复创建
+        // 跳过"默认"主题
         if (topicPreview.title === '我的快记') continue
 
         // 创建新主题
         const newTopic = createTopic({
           title: topicPreview.title
         })
-        // 标记为 AI 生成
         newTopic.source = 'ai_generated'
         newTopics.push(newTopic)
         createdTopicIds.push(newTopic.id)
@@ -91,22 +158,25 @@ function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, sav
       saveTopics(newTopics)
       saveNotes(newNotes)
 
+      // 清除任务缓存
+      clearTask()
+
       setExecutionResult({
         topicsCreated: createdTopicIds.length,
         notesUpdated: preview.topics.reduce((sum, t) => sum + t.count, 0)
       })
-      setStatus('done')
+      setPanelStatus('done')
 
-      // 通知父组件数据已变化
       onDataChange?.()
 
     } catch (err) {
-      setError(err.message)
-      setStatus('error')
+      console.error('执行分类失败:', err)
+      setPanelStatus('error')
+      setTaskState(prev => ({ ...prev, error: err.message }))
     }
   }
 
-  // 回滚到分类前
+  // 回滚
   const handleRollback = () => {
     if (!snapshot) return
 
@@ -114,24 +184,30 @@ function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, sav
     saveTopics(restored.topics)
     saveNotes(restored.notes)
 
-    setStatus('idle')
+    setPanelStatus('idle')
     setPreview(null)
     setSnapshot(null)
     setExecutionResult(null)
+    clearTask()
 
     onDataChange?.()
   }
 
   // 关闭面板
   const handleClose = () => {
-    setStatus('idle')
-    setPreview(null)
-    setError(null)
-    setExecutionResult(null)
+    // 如果任务正在运行，先暂停
+    if (taskState?.status === TASK_STATUS.RUNNING) {
+      pauseTask()
+    }
     onClose()
   }
 
   if (!isOpen) return null
+
+  // 计算进度百分比
+  const progressPercent = taskState?.totalNotes > 0
+    ? Math.round((taskState.processedNotes / taskState.totalNotes) * 100)
+    : 0
 
   return (
     <div className="classification-overlay" onClick={handleClose}>
@@ -147,7 +223,7 @@ function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, sav
 
         <div className="classification-content">
           {/* 初始状态 */}
-          {status === 'idle' && (
+          {panelStatus === 'idle' && (
             <div className="classification-intro">
               <div className="intro-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor">
@@ -160,28 +236,80 @@ function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, sav
                 根据语义相似性自动归类到不同主题。
               </p>
               <ul className="intro-features">
-                <li>自动识别内容主题</li>
-                <li>生成合适的主题标题</li>
+                <li>分批处理，不会超时</li>
+                <li>支持暂停/继续</li>
                 <li>预览后再确认执行</li>
                 <li>支持一键回滚</li>
               </ul>
               <button className="classification-btn primary" onClick={handleStartClassification}>
-                开始分类预览
+                开始分类
               </button>
             </div>
           )}
 
-          {/* 加载中 */}
-          {status === 'loading' && (
-            <div className="classification-loading">
-              <div className="loading-spinner"></div>
-              <p>AI 正在分析你的快记...</p>
-              <p className="loading-hint">这可能需要 10-30 秒</p>
+          {/* 运行中 / 暂停 */}
+          {panelStatus === 'running' && taskState && (
+            <div className="classification-progress">
+              <div className="progress-icon">
+                {taskState.status === TASK_STATUS.PAUSED ? (
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                  </svg>
+                ) : (
+                  <div className="loading-spinner"></div>
+                )}
+              </div>
+
+              <h3>
+                {taskState.status === TASK_STATUS.PAUSED ? '已暂停' : 'AI 正在分析...'}
+              </h3>
+
+              <div className="progress-bar-container">
+                <div className="progress-bar">
+                  <div
+                    className="progress-bar-fill"
+                    style={{ width: `${progressPercent}%` }}
+                  ></div>
+                </div>
+                <div className="progress-text">
+                  {progressPercent}% ({taskState.processedNotes}/{taskState.totalNotes} 条)
+                </div>
+              </div>
+
+              <div className="progress-detail">
+                <span>批次: {taskState.currentBatch + 1}/{taskState.totalBatches}</span>
+                {taskState.retryCount > 0 && (
+                  <span className="retry-count">重试: {taskState.retryCount} 次</span>
+                )}
+              </div>
+
+              <div className="progress-actions">
+                {taskState.status === TASK_STATUS.RUNNING ? (
+                  <button className="classification-btn" onClick={handlePause}>
+                    暂停
+                  </button>
+                ) : (
+                  <>
+                    <button className="classification-btn primary" onClick={handleResume}>
+                      继续
+                    </button>
+                    <button className="classification-btn" onClick={handleRestart}>
+                      重新开始
+                    </button>
+                  </>
+                )}
+              </div>
+
+              <p className="progress-hint">
+                {taskState.status === TASK_STATUS.PAUSED
+                  ? '任务已暂停，进度已保存，可以随时继续'
+                  : '可以关闭面板，任务会在后台继续运行'}
+              </p>
             </div>
           )}
 
           {/* 预览结果 */}
-          {status === 'preview' && preview && (
+          {panelStatus === 'preview' && preview && (
             <div className="classification-preview">
               <div className="preview-header">
                 <h3>分类预览</h3>
@@ -217,7 +345,7 @@ function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, sav
               </div>
 
               <div className="preview-actions">
-                <button className="classification-btn" onClick={() => setStatus('idle')}>
+                <button className="classification-btn" onClick={handleRestart}>
                   重新分析
                 </button>
                 <button className="classification-btn primary" onClick={handleConfirmClassification}>
@@ -232,7 +360,7 @@ function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, sav
           )}
 
           {/* 执行中 */}
-          {status === 'executing' && (
+          {panelStatus === 'executing' && (
             <div className="classification-loading">
               <div className="loading-spinner"></div>
               <p>正在执行分类...</p>
@@ -240,7 +368,7 @@ function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, sav
           )}
 
           {/* 完成 */}
-          {status === 'done' && executionResult && (
+          {panelStatus === 'done' && executionResult && (
             <div className="classification-done">
               <div className="done-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor">
@@ -264,7 +392,7 @@ function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, sav
           )}
 
           {/* 错误 */}
-          {status === 'error' && (
+          {panelStatus === 'error' && (
             <div className="classification-error">
               <div className="error-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor">
@@ -272,10 +400,22 @@ function ClassificationPanel({ isOpen, onClose, notes, topics, onDataChange, sav
                 </svg>
               </div>
               <h3>分类失败</h3>
-              <p className="error-message">{error}</p>
-              <button className="classification-btn" onClick={() => setStatus('idle')}>
-                重试
-              </button>
+              <p className="error-message">{taskState?.error || '未知错误'}</p>
+
+              {taskState && taskState.processedNotes > 0 && (
+                <p className="error-progress">
+                  已处理 {taskState.processedNotes}/{taskState.totalNotes} 条
+                </p>
+              )}
+
+              <div className="error-actions">
+                <button className="classification-btn primary" onClick={handleRetry}>
+                  从断点重试
+                </button>
+                <button className="classification-btn" onClick={handleRestart}>
+                  重新开始
+                </button>
+              </div>
             </div>
           )}
         </div>
