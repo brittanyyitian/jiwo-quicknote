@@ -90,6 +90,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showClassification, setShowClassification] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [expandedExternalId, setExpandedExternalId] = useState(null)  // 展开的外部问答卡片 ID
 
   // Refs
   const bubbleAreaRef = useRef(null)
@@ -199,6 +200,11 @@ function App() {
     .filter(n => n.source === NOTE_SOURCE.ASK_CONVERSATION)
     .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))  // 按时间正序，像聊天一样
 
+  // 外部主题触发的 AI 问答（用于问一问的卡片区）
+  const externalQANotes = notes
+    .filter(n => n.source === NOTE_SOURCE.EXTERNAL_TRIGGER && n.aiStatus === AI_STATUS.DONE)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))  // 按时间倒序，最新在前
+
   // ==================== 发送快记（异步 AI 调用）====================
 
   const canSend = inputValue.trim().length > 0 && !isSending
@@ -305,6 +311,18 @@ function App() {
     setShowRelatedModal(false)
   }
 
+  // 跳转到原主题/原快记
+  const handleGoToOriginalNote = (note) => {
+    setSelectedTopicId(note.topicId)
+    setSelectedNoteId(note.id)
+    setExpandedExternalId(null)
+  }
+
+  // 切换外部问答卡片展开状态
+  const handleToggleExternalCard = (noteId) => {
+    setExpandedExternalId(prev => prev === noteId ? null : noteId)
+  }
+
   // ==================== 渲染 ====================
 
   return (
@@ -395,94 +413,201 @@ function App() {
 
         <div className="bubble-area" ref={bubbleAreaRef}>
           {selectedTopicId === ASK_TOPIC_ID ? (
-            /* 问一问：对话气泡形式 */
-            <div className="ask-conversation-area">
-              {askConversations.length === 0 ? (
-                <div className="empty-notes">
-                  <div className="empty-ask-icon">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                    </svg>
+            /* 问一问：双区块布局 */
+            <div className="ask-main-area">
+              {/* 区块 A：问一问内的对话气泡 */}
+              <div className="ask-conversation-section">
+                {askConversations.length === 0 && externalQANotes.length === 0 ? (
+                  <div className="empty-notes">
+                    <div className="empty-ask-icon">
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
+                      </svg>
+                    </div>
+                    <p>向 AI 提问</p>
+                    <p className="empty-hint">基于你的快记来回答问题，支持联网搜索</p>
                   </div>
-                  <p>向 AI 提问</p>
-                  <p className="empty-hint">基于你的快记来回答问题，支持联网搜索</p>
-                </div>
-              ) : (
-                <div className="conversation-list">
-                  {askConversations.map(note => {
-                    const noteAIResponse = note.aiResponseId
-                      ? aiResponses.find(r => r.id === note.aiResponseId)
-                      : null
+                ) : (
+                  <>
+                    {/* 对话气泡列表 */}
+                    {askConversations.length > 0 && (
+                      <div className="conversation-list">
+                        {askConversations.map(note => {
+                          const noteAIResponse = note.aiResponseId
+                            ? aiResponses.find(r => r.id === note.aiResponseId)
+                            : null
 
-                    return (
-                      <div key={note.id} className="conversation-item">
-                        {/* 用户问题 - 右侧 */}
-                        <div className="conversation-user">
-                          <div className="conversation-bubble user-bubble">
-                            <div className="conversation-content">{note.content}</div>
-                          </div>
-                          <div className="conversation-avatar user-avatar">我</div>
-                        </div>
-                        <div className="conversation-time user-time">{formatTime(note.createdAt)}</div>
-
-                        {/* AI 回答 - 左侧 */}
-                        {note.aiStatus === AI_STATUS.PROCESSING && (
-                          <div className="conversation-ai">
-                            <div className="conversation-avatar ai-avatar">
-                              <svg viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                              </svg>
-                            </div>
-                            <div className="conversation-bubble ai-bubble thinking">
-                              <div className="thinking-dots">
-                                <span></span><span></span><span></span>
+                          return (
+                            <div key={note.id} className="conversation-item">
+                              {/* 用户问题 - 右侧 */}
+                              <div className="conversation-user">
+                                <div className="conversation-bubble user-bubble">
+                                  <div className="conversation-content">{note.content}</div>
+                                </div>
+                                <div className="conversation-avatar user-avatar">我</div>
                               </div>
-                            </div>
-                          </div>
-                        )}
+                              <div className="conversation-time user-time">{formatTime(note.createdAt)}</div>
 
-                        {note.aiStatus === AI_STATUS.DONE && noteAIResponse && (
-                          <>
-                            <div className="conversation-ai">
-                              <div className="conversation-avatar ai-avatar">
-                                <svg viewBox="0 0 24 24" fill="currentColor">
-                                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                                </svg>
-                              </div>
-                              <div className="conversation-bubble ai-bubble">
-                                <div className="conversation-content">{noteAIResponse.content}</div>
-                                {noteAIResponse.usedWebSearch && (
-                                  <div className="ai-search-badge">
-                                    <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-                                      <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                              {/* AI 回答 - 左侧 */}
+                              {note.aiStatus === AI_STATUS.PROCESSING && (
+                                <div className="conversation-ai">
+                                  <div className="conversation-avatar ai-avatar">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
                                     </svg>
-                                    <span>已联网搜索</span>
                                   </div>
-                                )}
-                              </div>
-                            </div>
-                            <div className="conversation-time ai-time">
-                              {formatTime(noteAIResponse.createdAt)}
-                              {noteAIResponse.metadata?.model && ` · ${noteAIResponse.metadata.model}`}
-                            </div>
-                          </>
-                        )}
+                                  <div className="conversation-bubble ai-bubble thinking">
+                                    <div className="thinking-dots">
+                                      <span></span><span></span><span></span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
 
-                        {note.aiStatus === AI_STATUS.ERROR && (
-                          <div className="conversation-ai">
-                            <div className="conversation-avatar ai-avatar error">
+                              {note.aiStatus === AI_STATUS.DONE && noteAIResponse && (
+                                <>
+                                  <div className="conversation-ai">
+                                    <div className="conversation-avatar ai-avatar">
+                                      <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
+                                      </svg>
+                                    </div>
+                                    <div className="conversation-bubble ai-bubble">
+                                      <div className="conversation-content">{noteAIResponse.content}</div>
+                                      {noteAIResponse.usedWebSearch && (
+                                        <div className="ai-search-badge">
+                                          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                                            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                                          </svg>
+                                          <span>已联网搜索</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="conversation-time ai-time">
+                                    {formatTime(noteAIResponse.createdAt)}
+                                    {noteAIResponse.metadata?.model && ` · ${noteAIResponse.metadata.model}`}
+                                  </div>
+                                </>
+                              )}
+
+                              {note.aiStatus === AI_STATUS.ERROR && (
+                                <div className="conversation-ai">
+                                  <div className="conversation-avatar ai-avatar error">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
+                                    </svg>
+                                  </div>
+                                  <div className="conversation-bubble ai-bubble error">
+                                    <div className="conversation-content">抱歉，AI 回答失败，请重试</div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* 区块 B：外部主题的 AI 问答卡片 */}
+              {externalQANotes.length > 0 && (
+                <div className="external-qa-section">
+                  <div className="external-qa-header">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                    </svg>
+                    <span>来自其他主题的问答</span>
+                    <span className="external-qa-count">{externalQANotes.length}</span>
+                  </div>
+                  <div className="external-qa-list">
+                    {externalQANotes.map(note => {
+                      const noteAIResponse = note.aiResponseId
+                        ? aiResponses.find(r => r.id === note.aiResponseId)
+                        : null
+                      const sourceTopic = topics.find(t => t.id === note.topicId)
+                      const isExpanded = expandedExternalId === note.id
+
+                      return (
+                        <div key={note.id} className={`external-qa-card ${isExpanded ? 'expanded' : ''}`}>
+                          {/* 卡片头部（始终显示） */}
+                          <div
+                            className="external-qa-card-header"
+                            onClick={() => handleToggleExternalCard(note.id)}
+                          >
+                            <div className="external-qa-source">
+                              <span className="source-topic">{sourceTopic?.title || '未知主题'}</span>
+                              <span className="source-time">{formatTime(note.createdAt)}</span>
+                            </div>
+                            <div className="external-qa-summary">
+                              <div className="summary-question">
+                                <span className="summary-label">问</span>
+                                <span className="summary-text">{truncateText(note.content, 40)}</span>
+                              </div>
+                              {noteAIResponse && (
+                                <div className="summary-answer">
+                                  <span className="summary-label">答</span>
+                                  <span className="summary-text">{truncateText(noteAIResponse.content, 50)}</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="external-qa-expand-icon">
                               <svg viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
+                                {isExpanded ? (
+                                  <path d="M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z"/>
+                                ) : (
+                                  <path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/>
+                                )}
                               </svg>
                             </div>
-                            <div className="conversation-bubble ai-bubble error">
-                              <div className="conversation-content">抱歉，AI 回答失败，请重试</div>
-                            </div>
                           </div>
-                        )}
-                      </div>
-                    )
-                  })}
+
+                          {/* 展开的详情内容 */}
+                          {isExpanded && noteAIResponse && (
+                            <div className="external-qa-detail">
+                              <div className="detail-question">
+                                <div className="detail-label">
+                                  <div className="detail-avatar user">我</div>
+                                  <span>提问</span>
+                                </div>
+                                <div className="detail-content">{note.content}</div>
+                              </div>
+                              <div className="detail-answer">
+                                <div className="detail-label">
+                                  <div className="detail-avatar ai">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
+                                    </svg>
+                                  </div>
+                                  <span>AI 回答</span>
+                                  {noteAIResponse.usedWebSearch && (
+                                    <span className="detail-web-badge">已联网</span>
+                                  )}
+                                </div>
+                                <div className="detail-content">{noteAIResponse.content}</div>
+                              </div>
+                              <div className="detail-actions">
+                                <button
+                                  className="detail-goto-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleGoToOriginalNote(note)
+                                  }}
+                                >
+                                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                                    <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+                                  </svg>
+                                  跳转到原主题
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
             </div>

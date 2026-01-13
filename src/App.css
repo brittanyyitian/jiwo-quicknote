@@ -2197,3 +2197,265 @@
   color: #999;
   margin: 0;
 }
+
+/* ==================== 问一问双区块布局 ==================== */
+
+.ask-main-area {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.ask-conversation-section {
+  flex: 1;
+}
+
+/* 外部问答卡片区 */
+.external-qa-section {
+  border-top: 1px solid #e8e8e8;
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.external-qa-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px;
+  color: #666;
+  font-size: 13px;
+}
+
+.external-qa-header svg {
+  color: #999;
+}
+
+.external-qa-count {
+  background: #f0f0f0;
+  color: #666;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.external-qa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 16px;
+}
+
+/* 外部问答卡片 */
+.external-qa-card {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.external-qa-card:hover {
+  border-color: #d0d0d0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.external-qa-card.expanded {
+  border-color: #07c160;
+  box-shadow: 0 2px 12px rgba(7, 193, 96, 0.1);
+}
+
+.external-qa-card-header {
+  padding: 12px 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.external-qa-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.source-topic {
+  font-size: 12px;
+  color: #07c160;
+  background: #e8f8ee;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.source-time {
+  font-size: 12px;
+  color: #999;
+}
+
+.external-qa-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summary-question,
+.summary-answer {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.summary-label {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+}
+
+.summary-question .summary-label {
+  background: #e8f8ee;
+  color: #07c160;
+}
+
+.summary-answer .summary-label {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.summary-text {
+  font-size: 13px;
+  color: #333;
+  line-height: 1.4;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-answer .summary-text {
+  color: #666;
+}
+
+.external-qa-expand-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.external-qa-card-header {
+  position: relative;
+  padding-right: 36px;
+}
+
+.external-qa-expand-icon svg {
+  width: 20px;
+  height: 20px;
+  color: #999;
+}
+
+/* 展开的详情内容 */
+.external-qa-detail {
+  border-top: 1px solid #f0f0f0;
+  padding: 16px;
+  background: #fafafa;
+}
+
+.detail-question,
+.detail-answer {
+  margin-bottom: 16px;
+}
+
+.detail-answer {
+  margin-bottom: 12px;
+}
+
+.detail-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #666;
+}
+
+.detail-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+
+.detail-avatar.user {
+  background: linear-gradient(135deg, #07c160 0%, #06ad56 100%);
+  color: #fff;
+}
+
+.detail-avatar.ai {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.detail-avatar.ai svg {
+  width: 14px;
+  height: 14px;
+}
+
+.detail-web-badge {
+  background: #e6f4ff;
+  color: #1677ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.detail-content {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+  padding: 12px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+}
+
+.detail-answer .detail-content {
+  color: #555;
+}
+
+.detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+.detail-goto-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.detail-goto-btn:hover {
+  border-color: #07c160;
+  color: #07c160;
+}
+
+.detail-goto-btn svg {
+  color: currentColor;
+}
