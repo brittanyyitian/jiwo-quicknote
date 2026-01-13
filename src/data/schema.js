@@ -40,6 +40,7 @@ export const STORAGE_KEYS = {
   AI_RESPONSES: 'jiwo-ai-responses',
   ASK_CONVERSATIONS: 'jiwo-ask-conversations',
   NOTE_RELATIONS: 'jiwo-note-relations',
+  REFERENCES: 'jiwo-references',  // 引用关系
   VERSION: 'jiwo-data-version'
 }
 
@@ -72,18 +73,20 @@ export function createTopic({ id, title }) {
  * @property {string} id - 唯一标识
  * @property {string} topicId - 所属主题 ID
  * @property {string} content - 快记内容
+ * @property {string[]} images - 图片列表（base64 或 URL）
  * @property {string} source - 来源类型 (NOTE_SOURCE)
  * @property {string} aiStatus - AI 状态 (AI_STATUS)
  * @property {string|null} aiResponseId - 关联的 AI 回答 ID
  * @property {string} createdAt - 创建时间 (ISO 8601)
  * @property {string} updatedAt - 更新时间 (ISO 8601)
  */
-export function createNote({ topicId, content, source = NOTE_SOURCE.NORMAL }) {
+export function createNote({ topicId, content, images = [], source = NOTE_SOURCE.NORMAL }) {
   const now = new Date().toISOString()
   return {
     id: crypto.randomUUID(),
     topicId: topicId || DEFAULT_TOPIC_ID,
     content: content || '',
+    images: images || [],
     source: source,
     aiStatus: AI_STATUS.NONE,
     aiResponseId: null,
@@ -162,6 +165,37 @@ export function createNoteRelation({ noteId, relatedNoteId, score }) {
     score: score || 0,
     computedAt: new Date().toISOString()
   }
+}
+
+/**
+ * 引用关系 Reference
+ * 存储快记之间的引用（延展）关系
+ * @typedef {Object} Reference
+ * @property {string} id - 唯一标识
+ * @property {string} sourceNoteId - 引用方快记 ID（新创建的快记）
+ * @property {string} targetNoteId - 被引用快记 ID（原快记）
+ * @property {string} createdAt - 创建时间 (ISO 8601)
+ */
+export function createReference({ sourceNoteId, targetNoteId }) {
+  return {
+    id: crypto.randomUUID(),
+    sourceNoteId: sourceNoteId,
+    targetNoteId: targetNoteId,
+    createdAt: new Date().toISOString()
+  }
+}
+
+/**
+ * 验证 Reference 数据结构
+ */
+export function validateReference(ref) {
+  return (
+    ref &&
+    typeof ref.id === 'string' &&
+    typeof ref.sourceNoteId === 'string' &&
+    typeof ref.targetNoteId === 'string' &&
+    typeof ref.createdAt === 'string'
+  )
 }
 
 // ==================== 数据验证 ====================

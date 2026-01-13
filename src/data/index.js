@@ -20,11 +20,13 @@ export {
   createAIResponse,
   createAskConversation,
   createNoteRelation,
+  createReference,
 
   // 验证函数
   validateTopic,
   validateNote,
   validateAIResponse,
+  validateReference,
   validateExportData
 } from './schema.js'
 
@@ -52,6 +54,10 @@ export {
   // Note Relations CRUD
   saveNoteRelations,
   loadNoteRelations,
+
+  // References CRUD (引用关系)
+  saveReferences,
+  loadReferences,
 
   // 导入导出
   exportAllData,

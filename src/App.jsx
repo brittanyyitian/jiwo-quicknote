@@ -6,9 +6,11 @@ import {
   DEFAULT_TOPIC_ID,
   createTopic,
   createNote,
+  createReference,
   initializeStorage,
   saveTopics,
-  saveNotes
+  saveNotes,
+  saveReferences
 } from './data/index.js'
 
 // 组件
@@ -38,22 +40,55 @@ function truncateText(text, maxLength = 50) {
   return text.slice(0, maxLength) + '...'
 }
 
+// 压缩图片
+async function compressImage(file, maxWidth = 1200, quality = 0.8) {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        let width = img.width
+        let height = img.height
+
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width
+          width = maxWidth
+        }
+
+        canvas.width = width
+        canvas.height = height
+
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, width, height)
+
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.src = e.target.result
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
 // ==================== 主组件 ====================
 
 function App() {
   // 核心数据状态
   const [topics, setTopics] = useState([])
   const [notes, setNotes] = useState([])
+  const [references, setReferences] = useState([])
 
   // UI 状态
   const [selectedTopicId, setSelectedTopicId] = useState(DEFAULT_TOPIC_ID)
   const [inputValue, setInputValue] = useState('')
+  const [inputImages, setInputImages] = useState([])
   const [selectedNoteId, setSelectedNoteId] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
 
   // 编辑状态
   const [editingNoteId, setEditingNoteId] = useState(null)
   const [editingContent, setEditingContent] = useState('')
+  const [editingImages, setEditingImages] = useState([])
 
   // 删除确认状态
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
@@ -65,12 +100,41 @@ function App() {
   // 移动快记弹窗
   const [showMoveTopic, setShowMoveTopic] = useState(false)
 
+  // 引用弹窗
+  const [showReferenceModal, setShowReferenceModal] = useState(false)
+  const [referenceContent, setReferenceContent] = useState('')
+  const [referenceImages, setReferenceImages] = useState([])
+
   // Refs
   const bubbleAreaRef = useRef(null)
   const editTextareaRef = useRef(null)
+  const imageInputRef = useRef(null)
+  const editImageInputRef = useRef(null)
+  const referenceImageInputRef = useRef(null)
 
   // 获取选中的快记
   const selectedNote = notes.find(n => n.id === selectedNoteId)
+
+  // 获取引用关系
+  const getReferencesFrom = (noteId) => {
+    // 当前快记引用了哪些快记
+    return references
+      .filter(r => r.sourceNoteId === noteId)
+      .map(r => notes.find(n => n.id === r.targetNoteId))
+      .filter(Boolean)
+  }
+
+  const getReferencesTo = (noteId) => {
+    // 哪些快记引用了当前快记
+    return references
+      .filter(r => r.targetNoteId === noteId)
+      .map(r => notes.find(n => n.id === r.sourceNoteId))
+      .filter(Boolean)
+  }
+
+  const hasReferences = (noteId) => {
+    return references.some(r => r.sourceNoteId === noteId || r.targetNoteId === noteId)
+  }
 
   // ==================== 数据初始化与持久化 ====================
 
@@ -78,6 +142,7 @@ function App() {
     const data = initializeStorage()
     setTopics(data.topics)
     setNotes(data.notes)
+    setReferences(data.references || [])
   }, [])
 
   useEffect(() => {
@@ -88,10 +153,15 @@ function App() {
     if (notes.length > 0) saveNotes(notes)
   }, [notes])
 
+  useEffect(() => {
+    saveReferences(references)
+  }, [references])
+
   const handleDataChange = useCallback(() => {
     const data = initializeStorage()
     setTopics(data.topics)
     setNotes(data.notes)
+    setReferences(data.references || [])
   }, [])
 
   // 自动滚动到底部
@@ -150,20 +220,39 @@ function App() {
     .filter(n => n.topicId === selectedTopicId)
     .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
 
+  // ==================== 图片处理 ====================
+
+  const handleImageUpload = async (files, setImages, currentImages) => {
+    const newImages = []
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        const compressed = await compressImage(file)
+        newImages.push(compressed)
+      }
+    }
+    setImages([...currentImages, ...newImages])
+  }
+
+  const handleRemoveImage = (index, setImages, currentImages) => {
+    setImages(currentImages.filter((_, i) => i !== index))
+  }
+
   // ==================== 快记 CRUD ====================
 
   // 创建快记
-  const canSend = inputValue.trim().length > 0
+  const canSend = inputValue.trim().length > 0 || inputImages.length > 0
 
   const handleSend = () => {
     if (!canSend) return
 
     const content = inputValue.trim()
     setInputValue('')
+    setInputImages([])
 
     const newNote = createNote({
       topicId: selectedTopicId,
-      content: content
+      content: content,
+      images: inputImages
     })
 
     setNotes(prev => [newNote, ...prev])
@@ -178,10 +267,10 @@ function App() {
 
   // 打开快记详情
   const handleNoteClick = (noteId) => {
-    // 如果正在编辑其他快记，先取消编辑
     if (editingNoteId && editingNoteId !== noteId) {
       setEditingNoteId(null)
       setEditingContent('')
+      setEditingImages([])
     }
     setSelectedNoteId(noteId)
   }
@@ -191,7 +280,9 @@ function App() {
     setSelectedNoteId(null)
     setEditingNoteId(null)
     setEditingContent('')
+    setEditingImages([])
     setShowMoveTopic(false)
+    setShowReferenceModal(false)
   }
 
   // 开始编辑快记
@@ -199,17 +290,19 @@ function App() {
     if (!selectedNote) return
     setEditingNoteId(selectedNote.id)
     setEditingContent(selectedNote.content)
+    setEditingImages(selectedNote.images || [])
   }
 
   // 保存编辑
   const handleSaveEdit = () => {
-    if (!editingNoteId || !editingContent.trim()) return
+    if (!editingNoteId || (!editingContent.trim() && editingImages.length === 0)) return
 
     setNotes(prev => prev.map(n =>
       n.id === editingNoteId
         ? {
             ...n,
             content: editingContent.trim(),
+            images: editingImages,
             updatedAt: new Date().toISOString()
           }
         : n
@@ -217,12 +310,14 @@ function App() {
 
     setEditingNoteId(null)
     setEditingContent('')
+    setEditingImages([])
   }
 
   // 取消编辑
   const handleCancelEdit = () => {
     setEditingNoteId(null)
     setEditingContent('')
+    setEditingImages([])
   }
 
   // 编辑时按键处理
@@ -246,7 +341,13 @@ function App() {
   const handleConfirmDelete = () => {
     if (!deleteConfirmId) return
 
+    // 删除快记
     setNotes(prev => prev.filter(n => n.id !== deleteConfirmId))
+
+    // 删除相关引用关系
+    setReferences(prev => prev.filter(r =>
+      r.sourceNoteId !== deleteConfirmId && r.targetNoteId !== deleteConfirmId
+    ))
 
     // 如果删除的是当前选中的快记，关闭详情面板
     if (selectedNoteId === deleteConfirmId) {
@@ -295,6 +396,53 @@ function App() {
     ))
 
     setShowMoveTopic(false)
+  }
+
+  // ==================== 引用功能 ====================
+
+  // 打开引用弹窗
+  const handleOpenReference = () => {
+    setShowReferenceModal(true)
+    setReferenceContent('')
+    setReferenceImages([])
+  }
+
+  // 创建引用
+  const handleCreateReference = () => {
+    if (!selectedNote || (!referenceContent.trim() && referenceImages.length === 0)) return
+
+    // 创建新快记
+    const newNote = createNote({
+      topicId: selectedTopicId,
+      content: referenceContent.trim(),
+      images: referenceImages
+    })
+
+    // 创建引用关系
+    const newReference = createReference({
+      sourceNoteId: newNote.id,
+      targetNoteId: selectedNote.id
+    })
+
+    setNotes(prev => [newNote, ...prev])
+    setReferences(prev => [...prev, newReference])
+
+    // 关闭弹窗
+    setShowReferenceModal(false)
+    setReferenceContent('')
+    setReferenceImages([])
+
+    // 选中新创建的快记
+    setSelectedNoteId(newNote.id)
+  }
+
+  // 跳转到引用的快记
+  const handleGoToNote = (noteId) => {
+    const note = notes.find(n => n.id === noteId)
+    if (note) {
+      setSelectedTopicId(note.topicId)
+      setSelectedNoteId(noteId)
+    }
   }
 
   // ==================== 渲染 ====================
@@ -375,10 +523,30 @@ function App() {
                   onClick={() => handleNoteClick(note.id)}
                 >
                   <div className="bubble-content">{truncateText(note.content, 100)}</div>
+
+                  {/* 图片预览 */}
+                  {note.images && note.images.length > 0 && (
+                    <div className="bubble-images-preview">
+                      {note.images.slice(0, 3).map((img, idx) => (
+                        <img key={idx} src={img} alt="" className="bubble-image-thumb" />
+                      ))}
+                      {note.images.length > 3 && (
+                        <span className="bubble-images-more">+{note.images.length - 3}</span>
+                      )}
+                    </div>
+                  )}
+
                   <div className="bubble-meta">
                     <span className="bubble-time">{formatTime(note.updatedAt || note.createdAt)}</span>
                     {note.updatedAt && note.updatedAt !== note.createdAt && (
                       <span className="bubble-edited">已编辑</span>
+                    )}
+                    {hasReferences(note.id) && (
+                      <span className="bubble-reference-badge" title="有引用关系">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                          <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
+                        </svg>
+                      </span>
                     )}
                   </div>
                 </div>
@@ -389,7 +557,37 @@ function App() {
 
         {/* 输入区 */}
         <div className="input-bar">
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => handleImageUpload(e.target.files, setInputImages, inputImages)}
+          />
+          <button
+            className="input-icon-btn"
+            onClick={() => imageInputRef.current?.click()}
+            title="上传图片"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+            </svg>
+          </button>
           <div className="input-wrapper">
+            {inputImages.length > 0 && (
+              <div className="input-images-preview">
+                {inputImages.map((img, idx) => (
+                  <div key={idx} className="input-image-item">
+                    <img src={img} alt="" />
+                    <button
+                      className="input-image-remove"
+                      onClick={() => handleRemoveImage(idx, setInputImages, inputImages)}
+                    >×</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               className="input-field"
               value={inputValue}
@@ -461,13 +659,48 @@ function App() {
                     onKeyDown={handleEditKeyDown}
                     placeholder="快记内容不能为空"
                   />
+
+                  {/* 编辑图片 */}
+                  <input
+                    ref={editImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: 'none' }}
+                    onChange={(e) => handleImageUpload(e.target.files, setEditingImages, editingImages)}
+                  />
+
+                  {editingImages.length > 0 && (
+                    <div className="detail-edit-images">
+                      {editingImages.map((img, idx) => (
+                        <div key={idx} className="detail-edit-image-item">
+                          <img src={img} alt="" />
+                          <button
+                            className="detail-edit-image-remove"
+                            onClick={() => handleRemoveImage(idx, setEditingImages, editingImages)}
+                          >×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    className="detail-add-image-btn"
+                    onClick={() => editImageInputRef.current?.click()}
+                  >
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                      <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                    </svg>
+                    添加图片
+                  </button>
+
                   <div className="detail-edit-hint">Ctrl/Cmd + Enter 保存，Esc 取消</div>
                   <div className="detail-edit-actions">
                     <button className="detail-btn secondary" onClick={handleCancelEdit}>取消</button>
                     <button
                       className="detail-btn primary"
                       onClick={handleSaveEdit}
-                      disabled={!editingContent.trim()}
+                      disabled={!editingContent.trim() && editingImages.length === 0}
                     >
                       保存
                     </button>
@@ -477,13 +710,87 @@ function App() {
                 /* 查看模式 */
                 <div className="detail-view">
                   <div className="detail-note-content">{selectedNote.content}</div>
+
+                  {/* 图片展示 */}
+                  {selectedNote.images && selectedNote.images.length > 0 && (
+                    <div className="detail-images">
+                      {selectedNote.images.map((img, idx) => (
+                        <img
+                          key={idx}
+                          src={img}
+                          alt=""
+                          className="detail-image"
+                          onClick={() => window.open(img, '_blank')}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
+            {/* 引用关系展示 */}
+            {editingNoteId !== selectedNote.id && (
+              <>
+                {/* 当前快记引用了哪些快记 */}
+                {getReferencesFrom(selectedNote.id).length > 0 && (
+                  <div className="detail-references-section">
+                    <div className="detail-references-header">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                        <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
+                      </svg>
+                      <span>引用了</span>
+                    </div>
+                    <div className="detail-references-list">
+                      {getReferencesFrom(selectedNote.id).map(note => (
+                        <div
+                          key={note.id}
+                          className="detail-reference-card"
+                          onClick={() => handleGoToNote(note.id)}
+                        >
+                          <div className="reference-card-content">{truncateText(note.content, 60)}</div>
+                          <div className="reference-card-time">{formatTime(note.createdAt)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 哪些快记引用了当前快记 */}
+                {getReferencesTo(selectedNote.id).length > 0 && (
+                  <div className="detail-references-section">
+                    <div className="detail-references-header">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                        <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
+                      </svg>
+                      <span>被引用</span>
+                    </div>
+                    <div className="detail-references-list">
+                      {getReferencesTo(selectedNote.id).map(note => (
+                        <div
+                          key={note.id}
+                          className="detail-reference-card"
+                          onClick={() => handleGoToNote(note.id)}
+                        >
+                          <div className="reference-card-content">{truncateText(note.content, 60)}</div>
+                          <div className="reference-card-time">{formatTime(note.createdAt)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
             {/* 操作按钮 */}
             {editingNoteId !== selectedNote.id && (
               <div className="detail-actions">
+                <button className="detail-btn" onClick={handleOpenReference}>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                    <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
+                  </svg>
+                  引用
+                </button>
                 <button className="detail-btn" onClick={handleStartEdit}>
                   <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
                     <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
@@ -587,7 +894,83 @@ function App() {
         </div>
       )}
 
-      {/* 8. 设置面板 */}
+      {/* 8. 引用弹窗 */}
+      {showReferenceModal && selectedNote && (
+        <div className="modal-overlay" onClick={() => setShowReferenceModal(false)}>
+          <div className="modal-dialog reference-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">引用这条快记</h3>
+            </div>
+            <div className="modal-body">
+              {/* 被引用的快记预览 */}
+              <div className="reference-target-preview">
+                <div className="reference-target-label">引用内容</div>
+                <div className="reference-target-content">
+                  {truncateText(selectedNote.content, 100)}
+                </div>
+              </div>
+
+              {/* 新快记输入 */}
+              <div className="reference-input-section">
+                <label className="reference-input-label">你的想法</label>
+                <textarea
+                  className="reference-textarea"
+                  value={referenceContent}
+                  onChange={(e) => setReferenceContent(e.target.value)}
+                  placeholder="写下你的想法..."
+                  autoFocus
+                />
+
+                {/* 图片上传 */}
+                <input
+                  ref={referenceImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  style={{ display: 'none' }}
+                  onChange={(e) => handleImageUpload(e.target.files, setReferenceImages, referenceImages)}
+                />
+
+                {referenceImages.length > 0 && (
+                  <div className="reference-images-preview">
+                    {referenceImages.map((img, idx) => (
+                      <div key={idx} className="reference-image-item">
+                        <img src={img} alt="" />
+                        <button
+                          className="reference-image-remove"
+                          onClick={() => handleRemoveImage(idx, setReferenceImages, referenceImages)}
+                        >×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  className="reference-add-image-btn"
+                  onClick={() => referenceImageInputRef.current?.click()}
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                    <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                  </svg>
+                  添加图片
+                </button>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="modal-btn" onClick={() => setShowReferenceModal(false)}>取消</button>
+              <button
+                className="modal-btn primary"
+                onClick={handleCreateReference}
+                disabled={!referenceContent.trim() && referenceImages.length === 0}
+              >
+                创建引用
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 9. 设置面板 */}
       <SettingsPanel
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}

@@ -183,6 +183,7 @@ export function initializeStorage() {
   let aiResponses = readFromStorage(STORAGE_KEYS.AI_RESPONSES) || []
   let askConversations = readFromStorage(STORAGE_KEYS.ASK_CONVERSATIONS) || []
   let noteRelations = readFromStorage(STORAGE_KEYS.NOTE_RELATIONS) || []
+  let references = readFromStorage(STORAGE_KEYS.REFERENCES) || []
 
   // 确保默认主题存在
   const hasDefaultTopic = topics.some(t => t.id === DEFAULT_TOPIC_ID)
@@ -202,7 +203,8 @@ export function initializeStorage() {
     notes,
     aiResponses,
     askConversations,
-    noteRelations
+    noteRelations,
+    references
   }
 }
 
@@ -251,6 +253,15 @@ export function saveNoteRelations(relations) {
 
 export function loadNoteRelations() {
   return readFromStorage(STORAGE_KEYS.NOTE_RELATIONS) || []
+}
+
+// References (引用关系)
+export function saveReferences(references) {
+  return writeToStorage(STORAGE_KEYS.REFERENCES, references)
+}
+
+export function loadReferences() {
+  return readFromStorage(STORAGE_KEYS.REFERENCES) || []
 }
 
 // ==================== 导入导出 ====================
