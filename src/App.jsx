@@ -106,6 +106,9 @@ function App() {
   // 右键菜单
   const [contextMenu, setContextMenu] = useState(null) // { x, y, noteId }
 
+  // 账户悬浮卡片
+  const [showAccountCard, setShowAccountCard] = useState(false)
+
   // Refs
   const bubbleAreaRef = useRef(null)
   const editTextareaRef = useRef(null)
@@ -152,6 +155,23 @@ function App() {
   // 获取引用当前快记的数量
   const getExtendedCount = (noteId) => {
     return references.filter(r => r.targetNoteId === noteId).length
+  }
+
+  // 计算使用统计
+  const getUsageStats = () => {
+    const totalNotes = notes.length
+    const totalChars = notes.reduce((sum, n) => sum + (n.content?.length || 0), 0)
+    const totalImages = notes.reduce((sum, n) => sum + (n.images?.length || 0), 0)
+
+    // 计算使用天数
+    let daysUsed = 1
+    if (notes.length > 0) {
+      const oldest = new Date(Math.min(...notes.map(n => new Date(n.createdAt))))
+      const now = new Date()
+      daysUsed = Math.max(1, Math.ceil((now - oldest) / (1000 * 60 * 60 * 24)))
+    }
+
+    return { totalNotes, totalChars, totalImages, daysUsed }
   }
 
   // ==================== 数据初始化与持久化 ====================
@@ -510,6 +530,23 @@ function App() {
     }
   }
 
+  // ==================== 账户功能 ====================
+
+  const handleOpenAccountCard = () => {
+    setShowAccountCard(true)
+  }
+
+  const handleCloseAccountCard = () => {
+    setShowAccountCard(false)
+  }
+
+  const handleOpenSettingsFromCard = () => {
+    setShowAccountCard(false)
+    setShowSettings(true)
+  }
+
+  const usageStats = getUsageStats()
+
   // ==================== 渲染 ====================
 
   return (
@@ -525,11 +562,71 @@ function App() {
               <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
             </svg>
           </div>
-          <div className="nav-item" title="设置" onClick={() => setShowSettings(true)}>
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
-            </svg>
+        </div>
+
+        {/* 用户头像入口 - 在底部 */}
+        <div className="nav-user">
+          <div
+            className={`nav-user-avatar ${showAccountCard ? 'active' : ''}`}
+            onClick={handleOpenAccountCard}
+            title="账户"
+          >
+            <span>我</span>
           </div>
+
+          {/* 账户悬浮卡片 */}
+          {showAccountCard && (
+            <>
+              <div className="account-card-overlay" onClick={handleCloseAccountCard} />
+              <div className="account-card">
+                {/* 用户信息区 */}
+                <div className="account-user-info">
+                  <div className="account-avatar">
+                    <span>我</span>
+                  </div>
+                  <div className="account-user-details">
+                    <div className="account-nickname">即我用户</div>
+                    <div className="account-id">ID: jiwo_user_001</div>
+                  </div>
+                </div>
+
+                {/* 使用统计卡片 */}
+                <div className="account-stats-card">
+                  <div className="stats-title">使用概览</div>
+                  <div className="stats-items">
+                    <div className="stats-item">
+                      <span className="stats-value">{usageStats.daysUsed}</span>
+                      <span className="stats-label">使用天数</span>
+                    </div>
+                    <div className="stats-item">
+                      <span className="stats-value">{usageStats.totalNotes}</span>
+                      <span className="stats-label">快记数量</span>
+                    </div>
+                    <div className="stats-item">
+                      <span className="stats-value">{usageStats.totalChars}</span>
+                      <span className="stats-label">总字数</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 操作入口区 */}
+                <div className="account-actions">
+                  <div className="account-action-item" onClick={handleOpenSettingsFromCard}>
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+                    </svg>
+                    <span>设置</span>
+                  </div>
+                  <div className="account-action-item" onClick={handleCloseAccountCard}>
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/>
+                    </svg>
+                    <span>关于</span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </nav>
 

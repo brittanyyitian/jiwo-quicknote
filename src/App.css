@@ -140,6 +140,186 @@ body {
   color: var(--color-primary);
 }
 
+/* ==================== 用户头像入口（功能栏底部） ==================== */
+.nav-user {
+  margin-top: auto;
+  padding-bottom: 16px;
+  position: relative;
+}
+
+.nav-user-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 2px solid transparent;
+}
+
+.nav-user-avatar span {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.nav-user-avatar:hover {
+  transform: scale(1.08);
+  box-shadow: 0 2px 12px rgba(102, 126, 234, 0.4);
+}
+
+.nav-user-avatar.active {
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: scale(1.08);
+}
+
+/* ==================== 账户悬浮卡片 ==================== */
+.account-card-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+}
+
+.account-card {
+  position: absolute;
+  bottom: 0;
+  left: calc(100% + 12px);
+  width: 280px;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 0 1px rgba(0, 0, 0, 0.1);
+  z-index: 999;
+  animation: accountCardIn 0.2s ease-out;
+  overflow: hidden;
+}
+
+@keyframes accountCardIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+/* 用户信息区 */
+.account-user-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.account-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.account-avatar span {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.account-user-details {
+  flex: 1;
+}
+
+.account-nickname {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 2px;
+}
+
+.account-id {
+  font-size: var(--font-size-xs);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 使用统计卡片 */
+.account-stats-card {
+  margin: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, var(--color-bg) 0%, rgba(102, 126, 234, 0.04) 100%);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light);
+}
+
+.stats-title {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stats-items {
+  display: flex;
+  justify-content: space-between;
+}
+
+.stats-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.stats-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.stats-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+/* 操作入口区 */
+.account-actions {
+  padding: 8px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.account-action-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.account-action-item:hover {
+  background: var(--color-bg);
+}
+
+.account-action-item svg {
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-secondary);
+}
+
+.account-action-item span {
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+}
+
 /* ==================== 主题列表侧边栏 ==================== */
 .sidebar {
   width: 260px;
