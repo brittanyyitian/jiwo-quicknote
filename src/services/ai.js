@@ -9,8 +9,11 @@
  * 1. 语义判断 - 判断内容是否需要 AI 回答
  * 2. 回答生成 - 基于用户问题和历史快记生成回答
  * 3. 联网搜索 - 在需要时搜索网络获取最新信息
- * 4. 相关性计算 - 计算快记之间的语义相关性（后续实现）
+ * 4. 相关性计算 - 使用embedding相似度选择最相关的快记
  */
+
+import { generateEmbedding, cosineSimilarity } from './embedding.js'
+import { loadEmbeddings } from '../data/index.js'
 
 // DashScope API 配置
 const DASHSCOPE_API_KEY = 'sk-3914c2f7b03d472ab8becc4e09310f35'
@@ -285,12 +288,49 @@ export async function webSearch(query) {
 export async function generateAIResponse(question, historyNotes = [], options = {}) {
   const { enableWebSearch = true } = options
 
+  // 使用embedding相似度选择最相关的快记
+  let relevantNotes = []
+  const MAX_CONTEXT_NOTES = 15  // 最多使用15条相关快记
+
+  try {
+    // 生成问题的embedding
+    const questionEmbedding = await generateEmbedding(question)
+
+    if (questionEmbedding.success && questionEmbedding.embedding) {
+      // 加载所有快记的embedding
+      const allEmbeddings = loadEmbeddings()
+      const embeddingMap = new Map(allEmbeddings.map(e => [e.noteId, e.embedding]))
+
+      // 计算相似度并排序
+      const notesWithSimilarity = historyNotes
+        .filter(n => n.content && n.content.length > 0)
+        .map(note => {
+          const noteEmbedding = embeddingMap.get(note.id)
+          const similarity = noteEmbedding
+            ? cosineSimilarity(questionEmbedding.embedding, noteEmbedding)
+            : 0
+          return { note, similarity }
+        })
+        .filter(item => item.similarity > 0.3)  // 只选择相似度>0.3的
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, MAX_CONTEXT_NOTES)
+
+      relevantNotes = notesWithSimilarity.map(item => item.note)
+      console.log(`[AI] 使用embedding选择了${relevantNotes.length}条相关快记`)
+    }
+  } catch (error) {
+    console.error('[AI] embedding相似度计算失败，回退到简单选择:', error)
+  }
+
+  // 如果embedding失败，回退到简单的前N条
+  if (relevantNotes.length === 0) {
+    relevantNotes = historyNotes
+      .filter(n => n.content && n.content.length > 0)
+      .slice(0, MAX_CONTEXT_NOTES)
+  }
+
   // 构建历史快记上下文
   let contextText = ''
-  const relevantNotes = historyNotes
-    .filter(n => n.content && n.content.length > 0)
-    .slice(0, 10)  // 最多使用 10 条快记作为上下文
-
   if (relevantNotes.length > 0) {
     contextText = relevantNotes
       .map((n, i) => `[快记${i + 1}] ${n.content}`)

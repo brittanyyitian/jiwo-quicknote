@@ -542,11 +542,15 @@ body {
   flex-shrink: 0;
 }
 
-.topic-item-ask .topic-avatar {
+.topic-item-ask .topic-avatar,
+.ask-topic .topic-avatar,
+.ask-avatar {
   color: var(--color-understand);
 }
 
-.topic-item-ask .topic-avatar svg {
+.topic-item-ask .topic-avatar svg,
+.ask-topic .topic-avatar svg,
+.ask-avatar svg {
   width: 16px;
   height: 16px;
 }
@@ -686,7 +690,9 @@ body {
   color: var(--color-text-quaternary);
 }
 
-.empty-ask-icon {
+.empty-ask-icon,
+.empty-icon.ask-icon,
+.ask-icon {
   width: 48px;
   height: 48px;
   background: var(--color-bg-soft);
@@ -697,7 +703,9 @@ body {
   margin-bottom: 14px;
 }
 
-.empty-ask-icon svg {
+.empty-ask-icon svg,
+.empty-icon.ask-icon svg,
+.ask-icon svg {
   width: 22px;
   height: 22px;
   color: var(--color-text-quaternary);
