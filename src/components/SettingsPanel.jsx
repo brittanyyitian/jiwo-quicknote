@@ -11,11 +11,12 @@ import {
   clearAllData
 } from '../data/index.js'
 
-function SettingsPanel({ isOpen, onClose, onDataChange, onOpenClassification }) {
+function SettingsPanel({ isOpen, onClose, onDataChange }) {
   const [stats, setStats] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState(null)
   const [confirmClear, setConfirmClear] = useState(false)
+  const [importMode, setImportMode] = useState('replace') // 'replace' | 'merge'
   const fileInputRef = useRef(null)
 
   // 加载统计信息
@@ -47,7 +48,7 @@ function SettingsPanel({ isOpen, onClose, onDataChange, onOpenClassification }) 
     setImportResult(null)
 
     try {
-      const result = await importFromFile(file, { merge: false })
+      const result = await importFromFile(file, { merge: importMode === 'merge' })
       setImportResult(result)
 
       if (result.success) {
@@ -115,10 +116,6 @@ function SettingsPanel({ isOpen, onClose, onDataChange, onOpenClassification }) 
                   <span className="stat-value">{stats.counts.notes}</span>
                 </div>
                 <div className="stat-item">
-                  <span className="stat-label">AI 回答</span>
-                  <span className="stat-value">{stats.counts.aiResponses}</span>
-                </div>
-                <div className="stat-item">
                   <span className="stat-label">存储占用</span>
                   <span className="stat-value">{stats.storageUsedFormatted}</span>
                 </div>
@@ -132,7 +129,7 @@ function SettingsPanel({ isOpen, onClose, onDataChange, onOpenClassification }) 
           <section className="settings-section">
             <h3>数据导出</h3>
             <p className="settings-desc">
-              将所有快记、主题、AI 回答导出为 JSON 文件，可用于备份或迁移。
+              将所有快记、主题导出为 JSON 文件，可用于备份或迁移。
             </p>
             <button className="settings-btn primary" onClick={handleExport}>
               导出数据
@@ -143,18 +140,39 @@ function SettingsPanel({ isOpen, onClose, onDataChange, onOpenClassification }) 
           <section className="settings-section">
             <h3>数据导入</h3>
             <p className="settings-desc">
-              支持 JSON 和 Markdown 格式导入。
-              <br />
-              <span className="settings-hint">
-                · JSON：完整备份数据
-                <br />
-                · Markdown：按段落或标题分割为快记
-              </span>
+              从 JSON 文件导入数据。
             </p>
+
+            {/* 导入模式选择 */}
+            <div className="import-mode-selector">
+              <label className={`import-mode-option ${importMode === 'replace' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="importMode"
+                  value="replace"
+                  checked={importMode === 'replace'}
+                  onChange={(e) => setImportMode(e.target.value)}
+                />
+                <span className="option-title">覆盖当前数据</span>
+                <span className="option-desc">清除现有数据，完全替换为导入内容</span>
+              </label>
+              <label className={`import-mode-option ${importMode === 'merge' ? 'active' : ''}`}>
+                <input
+                  type="radio"
+                  name="importMode"
+                  value="merge"
+                  checked={importMode === 'merge'}
+                  onChange={(e) => setImportMode(e.target.value)}
+                />
+                <span className="option-title">合并数据</span>
+                <span className="option-desc">保留现有数据，追加导入内容（避免 ID 冲突）</span>
+              </label>
+            </div>
+
             <input
               ref={fileInputRef}
               type="file"
-              accept=".json,.md,.markdown"
+              accept=".json"
               onChange={handleFileChange}
               style={{ display: 'none' }}
             />
@@ -171,23 +189,6 @@ function SettingsPanel({ isOpen, onClose, onDataChange, onOpenClassification }) 
                 {importResult.success ? importResult.message : importResult.error}
               </div>
             )}
-          </section>
-
-          {/* AI 自动分类 */}
-          <section className="settings-section">
-            <h3>AI 自动分类</h3>
-            <p className="settings-desc">
-              使用 AI 分析你的快记内容，自动按语义相似性归类到不同主题。
-            </p>
-            <button
-              className="settings-btn primary"
-              onClick={() => {
-                onClose()
-                onOpenClassification?.()
-              }}
-            >
-              开始智能分类
-            </button>
           </section>
 
           {/* 危险区域 */}

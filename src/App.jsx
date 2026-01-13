@@ -4,25 +4,15 @@ import './App.css'
 // 数据层
 import {
   DEFAULT_TOPIC_ID,
-  ASK_TOPIC_ID,
-  AI_STATUS,
-  NOTE_SOURCE,
   createTopic,
   createNote,
-  createAIResponse,
   initializeStorage,
   saveTopics,
-  saveNotes,
-  saveAIResponses,
-  loadAIResponses
+  saveNotes
 } from './data/index.js'
-
-// AI 服务
-import { judgeNeedsAIResponse, generateAIResponse } from './services/ai.js'
 
 // 组件
 import SettingsPanel from './components/SettingsPanel.jsx'
-import ClassificationPanel from './components/ClassificationPanel.jsx'
 
 // ==================== 工具函数 ====================
 
@@ -48,63 +38,39 @@ function truncateText(text, maxLength = 50) {
   return text.slice(0, maxLength) + '...'
 }
 
-// 简单的文本相似度计算（临时，后续用向量）
-function calculateSimilarity(text1, text2) {
-  if (!text1 || !text2) return 0
-  const words1 = new Set(text1.split(/\s+|[，。！？、；：""''（）]/))
-  const words2 = new Set(text2.split(/\s+|[，。！？、；：""''（）]/))
-  let commonCount = 0
-  words1.forEach(word => {
-    if (word.length > 1 && words2.has(word)) commonCount++
-  })
-  const totalWords = Math.max(words1.size, words2.size)
-  return totalWords > 0 ? commonCount / totalWords : 0
-}
-
-function getRelatedNotes(currentNote, allNotes, limit = 5) {
-  if (!currentNote || allNotes.length <= 1) return []
-  const otherNotes = allNotes.filter(n => n.id !== currentNote.id && n.content)
-  const scored = otherNotes.map(note => ({
-    note,
-    score: calculateSimilarity(currentNote.content, note.content)
-  }))
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map(item => item.note)
-}
-
 // ==================== 主组件 ====================
 
 function App() {
   // 核心数据状态
   const [topics, setTopics] = useState([])
   const [notes, setNotes] = useState([])
-  const [aiResponses, setAIResponses] = useState([])
 
   // UI 状态
   const [selectedTopicId, setSelectedTopicId] = useState(DEFAULT_TOPIC_ID)
   const [inputValue, setInputValue] = useState('')
   const [selectedNoteId, setSelectedNoteId] = useState(null)
-  const [showRelatedModal, setShowRelatedModal] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [showClassification, setShowClassification] = useState(false)
-  const [isSending, setIsSending] = useState(false)
-  const [expandedExternalId, setExpandedExternalId] = useState(null)  // 展开的外部问答卡片 ID
+
+  // 编辑状态
+  const [editingNoteId, setEditingNoteId] = useState(null)
+  const [editingContent, setEditingContent] = useState('')
+
+  // 删除确认状态
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+
+  // 新建主题弹窗
+  const [showNewTopic, setShowNewTopic] = useState(false)
+  const [newTopicTitle, setNewTopicTitle] = useState('')
+
+  // 移动快记弹窗
+  const [showMoveTopic, setShowMoveTopic] = useState(false)
 
   // Refs
   const bubbleAreaRef = useRef(null)
+  const editTextareaRef = useRef(null)
 
   // 获取选中的快记
   const selectedNote = notes.find(n => n.id === selectedNoteId)
-
-  // 获取选中快记的 AI 回答
-  const selectedNoteAIResponse = selectedNote?.aiResponseId
-    ? aiResponses.find(r => r.id === selectedNote.aiResponseId)
-    : null
-
-  // 获取相关快记
-  const relatedNotes = selectedNote ? getRelatedNotes(selectedNote, notes, 5) : []
 
   // ==================== 数据初始化与持久化 ====================
 
@@ -112,7 +78,6 @@ function App() {
     const data = initializeStorage()
     setTopics(data.topics)
     setNotes(data.notes)
-    setAIResponses(data.aiResponses)
   }, [])
 
   useEffect(() => {
@@ -123,15 +88,10 @@ function App() {
     if (notes.length > 0) saveNotes(notes)
   }, [notes])
 
-  useEffect(() => {
-    if (aiResponses.length > 0) saveAIResponses(aiResponses)
-  }, [aiResponses])
-
   const handleDataChange = useCallback(() => {
     const data = initializeStorage()
     setTopics(data.topics)
     setNotes(data.notes)
-    setAIResponses(data.aiResponses)
   }, [])
 
   // 自动滚动到底部
@@ -146,36 +106,34 @@ function App() {
     scrollToBottom()
   }, [notes.length, selectedTopicId, scrollToBottom])
 
+  // 编辑时自动聚焦 textarea
+  useEffect(() => {
+    if (editingNoteId && editTextareaRef.current) {
+      editTextareaRef.current.focus()
+      editTextareaRef.current.setSelectionRange(
+        editTextareaRef.current.value.length,
+        editTextareaRef.current.value.length
+      )
+    }
+  }, [editingNoteId])
+
   // ==================== 主题相关 ====================
 
-  const selectedTopic = selectedTopicId === ASK_TOPIC_ID
-    ? { id: ASK_TOPIC_ID, title: '问一问' }
-    : topics.find(t => t.id === selectedTopicId)
+  const selectedTopic = topics.find(t => t.id === selectedTopicId)
 
   const getTopicPreview = (topicId) => {
-    if (topicId === ASK_TOPIC_ID) {
-      const askNotes = notes.filter(n => n.source === NOTE_SOURCE.ASK_CONVERSATION && n.aiStatus === AI_STATUS.DONE)
-      return askNotes[0]?.content || '向 AI 提问，基于你的快记回答'
-    }
     const topicNotes = notes
       .filter(n => n.topicId === topicId)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
     return topicNotes[0]?.content || '暂无快记'
   }
 
   const getTopicTime = (topicId) => {
-    let topicNotes
-    if (topicId === ASK_TOPIC_ID) {
-      topicNotes = notes.filter(n =>
-        (n.source === NOTE_SOURCE.ASK_CONVERSATION || n.source === NOTE_SOURCE.EXTERNAL_TRIGGER) &&
-        n.aiStatus === AI_STATUS.DONE
-      )
-    } else {
-      topicNotes = notes.filter(n => n.topicId === topicId)
-    }
-    topicNotes = topicNotes.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    const topicNotes = notes
+      .filter(n => n.topicId === topicId)
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
     if (topicNotes.length === 0) return ''
-    const date = new Date(topicNotes[0].createdAt)
+    const date = new Date(topicNotes[0].updatedAt || topicNotes[0].createdAt)
     const today = new Date()
     if (date.toDateString() === today.toDateString()) {
       return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
@@ -183,109 +141,32 @@ function App() {
     return date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
   }
 
-  const askNotesCount = notes.filter(n =>
-    (n.source === NOTE_SOURCE.ASK_CONVERSATION || n.source === NOTE_SOURCE.EXTERNAL_TRIGGER) &&
-    n.aiStatus === AI_STATUS.DONE
-  ).length
+  const getTopicNoteCount = (topicId) => {
+    return notes.filter(n => n.topicId === topicId).length
+  }
 
-  // 当前主题的快记（按时间正序，最新在最下面）
-  const currentNotes = selectedTopicId === ASK_TOPIC_ID
-    ? []
-    : notes
-        .filter(n => n.topicId === selectedTopicId)
-        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+  // 当前主题的快记（按更新/创建时间倒序，最新在最上面）
+  const currentNotes = notes
+    .filter(n => n.topicId === selectedTopicId)
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
 
-  // 问一问的对话记录（来自问一问主题的提问）
-  const askConversations = notes
-    .filter(n => n.source === NOTE_SOURCE.ASK_CONVERSATION)
-    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))  // 按时间正序，像聊天一样
+  // ==================== 快记 CRUD ====================
 
-  // 外部主题触发的 AI 问答（用于问一问的卡片区）
-  const externalQANotes = notes
-    .filter(n => n.source === NOTE_SOURCE.EXTERNAL_TRIGGER && n.aiStatus === AI_STATUS.DONE)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))  // 按时间倒序，最新在前
+  // 创建快记
+  const canSend = inputValue.trim().length > 0
 
-  // ==================== 发送快记（异步 AI 调用）====================
-
-  const canSend = inputValue.trim().length > 0 && !isSending
-
-  const handleSend = async () => {
+  const handleSend = () => {
     if (!canSend) return
 
     const content = inputValue.trim()
     setInputValue('')
-    setIsSending(true)
 
-    try {
-      const isInAskTopic = selectedTopicId === ASK_TOPIC_ID
+    const newNote = createNote({
+      topicId: selectedTopicId,
+      content: content
+    })
 
-      // 1. 判断是否需要 AI 回答
-      let needsAI = isInAskTopic  // 问一问中强制触发
-      if (!isInAskTopic) {
-        // 其他主题用 AI 判断
-        const judgment = await judgeNeedsAIResponse(content)
-        needsAI = judgment.needsResponse
-        console.log('AI 判断结果:', judgment)
-      }
-
-      // 2. 创建快记
-      const newNote = createNote({
-        topicId: isInAskTopic ? DEFAULT_TOPIC_ID : selectedTopicId,
-        content: content,
-        source: needsAI
-          ? (isInAskTopic ? NOTE_SOURCE.ASK_CONVERSATION : NOTE_SOURCE.EXTERNAL_TRIGGER)
-          : NOTE_SOURCE.NORMAL
-      })
-
-      if (needsAI) {
-        // 先设置为处理中状态
-        newNote.aiStatus = AI_STATUS.PROCESSING
-      }
-
-      // 3. 先添加快记到列表（显示处理中状态）
-      setNotes(prev => [newNote, ...prev])
-
-      // 4. 如果需要 AI 回答，异步获取
-      if (needsAI) {
-        try {
-          const response = await generateAIResponse(content, notes)
-          console.log('AI 回答:', response)
-
-          const aiResponse = createAIResponse({
-            noteId: newNote.id,
-            content: response.content,
-            model: response.metadata?.model || 'qwen-turbo',
-            usedWebSearch: response.usedWebSearch || false,
-            sourceNoteIds: response.sourceNoteIds || [],
-            metadata: response.metadata || {}
-          })
-
-          // 更新快记状态
-          setNotes(prev => prev.map(n =>
-            n.id === newNote.id
-              ? { ...n, aiStatus: AI_STATUS.DONE, aiResponseId: aiResponse.id, updatedAt: new Date().toISOString() }
-              : n
-          ))
-
-          // 添加 AI 回答
-          setAIResponses(prev => [aiResponse, ...prev])
-
-        } catch (error) {
-          console.error('AI 回答失败:', error)
-          // 更新为错误状态
-          setNotes(prev => prev.map(n =>
-            n.id === newNote.id
-              ? { ...n, aiStatus: AI_STATUS.ERROR, updatedAt: new Date().toISOString() }
-              : n
-          ))
-        }
-      }
-
-    } catch (error) {
-      console.error('发送失败:', error)
-    } finally {
-      setIsSending(false)
-    }
+    setNotes(prev => [newNote, ...prev])
   }
 
   const handleKeyDown = (e) => {
@@ -295,32 +176,125 @@ function App() {
     }
   }
 
-  // ==================== 快记详情 ====================
-
+  // 打开快记详情
   const handleNoteClick = (noteId) => {
+    // 如果正在编辑其他快记，先取消编辑
+    if (editingNoteId && editingNoteId !== noteId) {
+      setEditingNoteId(null)
+      setEditingContent('')
+    }
     setSelectedNoteId(noteId)
   }
 
+  // 关闭详情面板
   const handleCloseDetail = () => {
     setSelectedNoteId(null)
-    setShowRelatedModal(false)
+    setEditingNoteId(null)
+    setEditingContent('')
+    setShowMoveTopic(false)
   }
 
-  const handleRelatedNoteClick = (noteId) => {
-    setSelectedNoteId(noteId)
-    setShowRelatedModal(false)
+  // 开始编辑快记
+  const handleStartEdit = () => {
+    if (!selectedNote) return
+    setEditingNoteId(selectedNote.id)
+    setEditingContent(selectedNote.content)
   }
 
-  // 跳转到原主题/原快记
-  const handleGoToOriginalNote = (note) => {
-    setSelectedTopicId(note.topicId)
-    setSelectedNoteId(note.id)
-    setExpandedExternalId(null)
+  // 保存编辑
+  const handleSaveEdit = () => {
+    if (!editingNoteId || !editingContent.trim()) return
+
+    setNotes(prev => prev.map(n =>
+      n.id === editingNoteId
+        ? {
+            ...n,
+            content: editingContent.trim(),
+            updatedAt: new Date().toISOString()
+          }
+        : n
+    ))
+
+    setEditingNoteId(null)
+    setEditingContent('')
   }
 
-  // 切换外部问答卡片展开状态
-  const handleToggleExternalCard = (noteId) => {
-    setExpandedExternalId(prev => prev === noteId ? null : noteId)
+  // 取消编辑
+  const handleCancelEdit = () => {
+    setEditingNoteId(null)
+    setEditingContent('')
+  }
+
+  // 编辑时按键处理
+  const handleEditKeyDown = (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleSaveEdit()
+    }
+    if (e.key === 'Escape') {
+      handleCancelEdit()
+    }
+  }
+
+  // 请求删除确认
+  const handleRequestDelete = () => {
+    if (!selectedNote) return
+    setDeleteConfirmId(selectedNote.id)
+  }
+
+  // 确认删除
+  const handleConfirmDelete = () => {
+    if (!deleteConfirmId) return
+
+    setNotes(prev => prev.filter(n => n.id !== deleteConfirmId))
+
+    // 如果删除的是当前选中的快记，关闭详情面板
+    if (selectedNoteId === deleteConfirmId) {
+      setSelectedNoteId(null)
+    }
+
+    setDeleteConfirmId(null)
+  }
+
+  // 取消删除
+  const handleCancelDelete = () => {
+    setDeleteConfirmId(null)
+  }
+
+  // ==================== 主题管理 ====================
+
+  // 创建新主题
+  const handleCreateTopic = () => {
+    if (!newTopicTitle.trim()) return
+
+    const newTopic = createTopic({
+      title: newTopicTitle.trim()
+    })
+
+    setTopics(prev => [...prev, newTopic])
+    setNewTopicTitle('')
+    setShowNewTopic(false)
+    setSelectedTopicId(newTopic.id)
+  }
+
+  // 移动快记到其他主题
+  const handleMoveTopic = (targetTopicId) => {
+    if (!selectedNote || targetTopicId === selectedNote.topicId) {
+      setShowMoveTopic(false)
+      return
+    }
+
+    setNotes(prev => prev.map(n =>
+      n.id === selectedNote.id
+        ? {
+            ...n,
+            topicId: targetTopicId,
+            updatedAt: new Date().toISOString()
+          }
+        : n
+    ))
+
+    setShowMoveTopic(false)
   }
 
   // ==================== 渲染 ====================
@@ -350,35 +324,10 @@ function App() {
       <aside className="sidebar">
         <div className="sidebar-header">
           <h1 className="sidebar-title">快记</h1>
-          <button className="new-btn">+</button>
+          <button className="new-btn" onClick={() => setShowNewTopic(true)} title="新建主题">+</button>
         </div>
 
         <div className="topic-list">
-          {/* 问一问 */}
-          <div
-            className={`topic-item topic-item-ask ${selectedTopicId === ASK_TOPIC_ID ? 'selected' : ''}`}
-            onClick={() => setSelectedTopicId(ASK_TOPIC_ID)}
-          >
-            <div className="topic-avatar topic-avatar-ask">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-              </svg>
-            </div>
-            <div className="topic-info">
-              <div className="topic-header">
-                <span className="topic-title">问一问</span>
-                <span className="topic-time">{getTopicTime(ASK_TOPIC_ID)}</span>
-              </div>
-              <div className="topic-preview">{truncateText(getTopicPreview(ASK_TOPIC_ID), 20)}</div>
-            </div>
-            {askNotesCount > 0 && (
-              <div className="topic-badge">{askNotesCount}</div>
-            )}
-          </div>
-
-          <div className="topic-divider"></div>
-
-          {/* 普通主题 */}
           {topics.map(topic => (
             <div
               key={topic.id}
@@ -393,6 +342,7 @@ function App() {
                 </div>
                 <div className="topic-preview">{truncateText(getTopicPreview(topic.id), 20)}</div>
               </div>
+              <span className="topic-count">{getTopicNoteCount(topic.id)}</span>
             </div>
           ))}
         </div>
@@ -402,291 +352,51 @@ function App() {
       <main className="main-content">
         <header className="content-header">
           <h2 className="content-title">{selectedTopic?.title || '快记'}</h2>
-          <button className="more-btn">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="12" cy="5" r="2"/>
-              <circle cx="12" cy="12" r="2"/>
-              <circle cx="12" cy="19" r="2"/>
-            </svg>
-          </button>
+          <span className="content-count">{currentNotes.length} 条</span>
         </header>
 
         <div className="bubble-area" ref={bubbleAreaRef}>
-          {selectedTopicId === ASK_TOPIC_ID ? (
-            /* 问一问：双区块布局 */
-            <div className="ask-main-area">
-              {/* 区块 A：问一问内的对话气泡 */}
-              <div className="ask-conversation-section">
-                {askConversations.length === 0 && externalQANotes.length === 0 ? (
-                  <div className="empty-notes">
-                    <div className="empty-ask-icon">
-                      <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                      </svg>
-                    </div>
-                    <p>向 AI 提问</p>
-                    <p className="empty-hint">基于你的快记来回答问题，支持联网搜索</p>
-                  </div>
-                ) : (
-                  <>
-                    {/* 对话气泡列表 */}
-                    {askConversations.length > 0 && (
-                      <div className="conversation-list">
-                        {askConversations.map(note => {
-                          const noteAIResponse = note.aiResponseId
-                            ? aiResponses.find(r => r.id === note.aiResponseId)
-                            : null
-
-                          return (
-                            <div key={note.id} className="conversation-item">
-                              {/* 用户问题 - 右侧 */}
-                              <div className="conversation-user">
-                                <div className="conversation-bubble user-bubble">
-                                  <div className="conversation-content">{note.content}</div>
-                                </div>
-                                <div className="conversation-avatar user-avatar">我</div>
-                              </div>
-                              <div className="conversation-time user-time">{formatTime(note.createdAt)}</div>
-
-                              {/* AI 回答 - 左侧 */}
-                              {note.aiStatus === AI_STATUS.PROCESSING && (
-                                <div className="conversation-ai">
-                                  <div className="conversation-avatar ai-avatar">
-                                    <svg viewBox="0 0 24 24" fill="currentColor">
-                                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                                    </svg>
-                                  </div>
-                                  <div className="conversation-bubble ai-bubble thinking">
-                                    <div className="thinking-dots">
-                                      <span></span><span></span><span></span>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {note.aiStatus === AI_STATUS.DONE && noteAIResponse && (
-                                <>
-                                  <div className="conversation-ai">
-                                    <div className="conversation-avatar ai-avatar">
-                                      <svg viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                                      </svg>
-                                    </div>
-                                    <div className="conversation-bubble ai-bubble">
-                                      <div className="conversation-content">{noteAIResponse.content}</div>
-                                      {noteAIResponse.usedWebSearch && (
-                                        <div className="ai-search-badge">
-                                          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-                                            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
-                                          </svg>
-                                          <span>已联网搜索</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="conversation-time ai-time">
-                                    {formatTime(noteAIResponse.createdAt)}
-                                    {noteAIResponse.metadata?.model && ` · ${noteAIResponse.metadata.model}`}
-                                  </div>
-                                </>
-                              )}
-
-                              {note.aiStatus === AI_STATUS.ERROR && (
-                                <div className="conversation-ai">
-                                  <div className="conversation-avatar ai-avatar error">
-                                    <svg viewBox="0 0 24 24" fill="currentColor">
-                                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                                    </svg>
-                                  </div>
-                                  <div className="conversation-bubble ai-bubble error">
-                                    <div className="conversation-content">抱歉，AI 回答失败，请重试</div>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
+          {currentNotes.length === 0 ? (
+            <div className="empty-notes">
+              <div className="empty-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
+                </svg>
               </div>
-
-              {/* 区块 B：外部主题的 AI 问答卡片 */}
-              {externalQANotes.length > 0 && (
-                <div className="external-qa-section">
-                  <div className="external-qa-header">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
-                    </svg>
-                    <span>来自其他主题的问答</span>
-                    <span className="external-qa-count">{externalQANotes.length}</span>
-                  </div>
-                  <div className="external-qa-list">
-                    {externalQANotes.map(note => {
-                      const noteAIResponse = note.aiResponseId
-                        ? aiResponses.find(r => r.id === note.aiResponseId)
-                        : null
-                      const sourceTopic = topics.find(t => t.id === note.topicId)
-                      const isExpanded = expandedExternalId === note.id
-
-                      return (
-                        <div key={note.id} className={`external-qa-card ${isExpanded ? 'expanded' : ''}`}>
-                          {/* 卡片头部（始终显示） */}
-                          <div
-                            className="external-qa-card-header"
-                            onClick={() => handleToggleExternalCard(note.id)}
-                          >
-                            <div className="external-qa-source">
-                              <span className="source-topic">{sourceTopic?.title || '未知主题'}</span>
-                              <span className="source-time">{formatTime(note.createdAt)}</span>
-                            </div>
-                            <div className="external-qa-summary">
-                              <div className="summary-question">
-                                <span className="summary-label">问</span>
-                                <span className="summary-text">{truncateText(note.content, 40)}</span>
-                              </div>
-                              {noteAIResponse && (
-                                <div className="summary-answer">
-                                  <span className="summary-label">答</span>
-                                  <span className="summary-text">{truncateText(noteAIResponse.content, 50)}</span>
-                                </div>
-                              )}
-                            </div>
-                            <div className="external-qa-expand-icon">
-                              <svg viewBox="0 0 24 24" fill="currentColor">
-                                {isExpanded ? (
-                                  <path d="M12 8l-6 6 1.41 1.41L12 10.83l4.59 4.58L18 14z"/>
-                                ) : (
-                                  <path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/>
-                                )}
-                              </svg>
-                            </div>
-                          </div>
-
-                          {/* 展开的详情内容 */}
-                          {isExpanded && noteAIResponse && (
-                            <div className="external-qa-detail">
-                              <div className="detail-question">
-                                <div className="detail-label">
-                                  <div className="detail-avatar user">我</div>
-                                  <span>提问</span>
-                                </div>
-                                <div className="detail-content">{note.content}</div>
-                              </div>
-                              <div className="detail-answer">
-                                <div className="detail-label">
-                                  <div className="detail-avatar ai">
-                                    <svg viewBox="0 0 24 24" fill="currentColor">
-                                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                                    </svg>
-                                  </div>
-                                  <span>AI 回答</span>
-                                  {noteAIResponse.usedWebSearch && (
-                                    <span className="detail-web-badge">已联网</span>
-                                  )}
-                                </div>
-                                <div className="detail-content">{noteAIResponse.content}</div>
-                              </div>
-                              <div className="detail-actions">
-                                <button
-                                  className="detail-goto-btn"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleGoToOriginalNote(note)
-                                  }}
-                                >
-                                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                                    <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
-                                  </svg>
-                                  跳转到原主题
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
+              <p>还没有快记</p>
+              <p className="empty-hint">在下方输入框写下第一条吧</p>
             </div>
           ) : (
             <div className="bubble-list">
-              {currentNotes.length === 0 ? (
-                <div className="empty-notes">
-                  <p>还没有快记</p>
-                  <p className="empty-hint">在下方输入框写下第一条吧</p>
+              {currentNotes.map(note => (
+                <div
+                  key={note.id}
+                  className={`bubble-item ${selectedNoteId === note.id ? 'selected' : ''}`}
+                  onClick={() => handleNoteClick(note.id)}
+                >
+                  <div className="bubble-content">{truncateText(note.content, 100)}</div>
+                  <div className="bubble-meta">
+                    <span className="bubble-time">{formatTime(note.updatedAt || note.createdAt)}</span>
+                    {note.updatedAt && note.updatedAt !== note.createdAt && (
+                      <span className="bubble-edited">已编辑</span>
+                    )}
+                  </div>
                 </div>
-              ) : (
-                currentNotes.map(note => {
-                  const noteAIResponse = note.aiResponseId
-                    ? aiResponses.find(r => r.id === note.aiResponseId)
-                    : null
-
-                  return (
-                    <div key={note.id} className="bubble-wrapper">
-                      <div className="bubble-row">
-                        <div
-                          className={`bubble ${note.aiStatus === AI_STATUS.DONE ? 'has-ai' : ''}`}
-                          onClick={() => handleNoteClick(note.id)}
-                        >
-                          <div className="bubble-content">{note.content}</div>
-
-                          {/* AI 处理中 */}
-                          {note.aiStatus === AI_STATUS.PROCESSING && (
-                            <div className="ai-badge thinking">
-                              <div className="thinking-dots-inline">
-                                <span></span><span></span><span></span>
-                              </div>
-                              <span>AI 思考中</span>
-                            </div>
-                          )}
-
-                          {/* AI 已回应 */}
-                          {note.aiStatus === AI_STATUS.DONE && noteAIResponse && (
-                            <div className="ai-badge">
-                              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                              </svg>
-                              <span>AI 已回应</span>
-                            </div>
-                          )}
-
-                          {/* AI 错误 */}
-                          {note.aiStatus === AI_STATUS.ERROR && (
-                            <div className="ai-badge error">
-                              <span>AI 回应失败</span>
-                            </div>
-                          )}
-                        </div>
-                        <div className="bubble-avatar">我</div>
-                      </div>
-                      <div className="bubble-time">{formatTime(note.createdAt)}</div>
-                    </div>
-                  )
-                })
-              )}
+              ))}
             </div>
           )}
         </div>
 
         {/* 输入区 */}
         <div className="input-bar">
-          <button className="input-icon-btn">
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
-            </svg>
-          </button>
           <div className="input-wrapper">
             <textarea
               className="input-field"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={selectedTopicId === ASK_TOPIC_ID ? "向 AI 提问…" : "记录此刻想法…"}
+              placeholder="记录此刻想法…"
               rows={1}
-              disabled={isSending}
             />
           </div>
           <button
@@ -694,7 +404,7 @@ function App() {
             disabled={!canSend}
             onClick={handleSend}
           >
-            {isSending ? '发送中...' : '发送'}
+            发送
           </button>
         </div>
       </main>
@@ -711,176 +421,177 @@ function App() {
             </button>
           </header>
 
-          <div className="detail-content">
+          <div className="detail-body">
+            {/* 元信息 */}
             <div className="detail-meta">
-              <div className="detail-avatar">我</div>
-              <div className="detail-info">
-                <span className="detail-nickname">我</span>
-                <span className="detail-time">{formatFullTime(selectedNote.createdAt)}</span>
+              <div className="detail-meta-item">
+                <span className="detail-meta-label">创建时间</span>
+                <span className="detail-meta-value">{formatFullTime(selectedNote.createdAt)}</span>
+              </div>
+              {selectedNote.updatedAt && selectedNote.updatedAt !== selectedNote.createdAt && (
+                <div className="detail-meta-item">
+                  <span className="detail-meta-label">更新时间</span>
+                  <span className="detail-meta-value">{formatFullTime(selectedNote.updatedAt)}</span>
+                </div>
+              )}
+              <div className="detail-meta-item">
+                <span className="detail-meta-label">所属主题</span>
+                <button
+                  className="detail-meta-topic"
+                  onClick={() => setShowMoveTopic(true)}
+                >
+                  {topics.find(t => t.id === selectedNote.topicId)?.title || '未知主题'}
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                    <path d="M7 10l5 5 5-5z"/>
+                  </svg>
+                </button>
               </div>
             </div>
 
-            <div className="detail-note-content">{selectedNote.content}</div>
-
-            {/* AI 处理中 */}
-            {selectedNote.aiStatus === AI_STATUS.PROCESSING && (
-              <div className="detail-ai-section">
-                <div className="detail-ai-header">
-                  <div className="detail-ai-avatar">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                    </svg>
-                  </div>
-                  <div className="detail-ai-info">
-                    <span className="detail-ai-label">AI 回答</span>
-                    <span className="detail-ai-time">思考中...</span>
-                  </div>
-                </div>
-                <div className="detail-ai-content thinking">
-                  <div className="thinking-dots">
-                    <span></span><span></span><span></span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* AI 已回应 */}
-            {selectedNote.aiStatus === AI_STATUS.DONE && selectedNoteAIResponse && (
-              <div className="detail-ai-section">
-                <div className="detail-ai-header">
-                  <div className="detail-ai-avatar">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
-                    </svg>
-                  </div>
-                  <div className="detail-ai-info">
-                    <span className="detail-ai-label">AI 回答</span>
-                    <span className="detail-ai-time">
-                      {formatFullTime(selectedNoteAIResponse.createdAt)}
-                      {selectedNoteAIResponse.metadata?.model && ` · ${selectedNoteAIResponse.metadata.model}`}
-                    </span>
-                  </div>
-                </div>
-                <div className="detail-ai-content">{selectedNoteAIResponse.content}</div>
-
-                {/* 联网搜索标记 */}
-                {selectedNoteAIResponse.usedWebSearch && (
-                  <div className="detail-ai-search-badge">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                      <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
-                    </svg>
-                    <span>已联网搜索</span>
-                  </div>
-                )}
-
-                {/* 参考快记 */}
-                {selectedNoteAIResponse.sourceNoteIds?.length > 0 && (
-                  <div className="detail-ai-sources">
-                    <div className="detail-ai-sources-title">参考了以下快记：</div>
-                    <div className="detail-ai-sources-list">
-                      {selectedNoteAIResponse.sourceNoteIds.slice(0, 5).map(noteId => {
-                        const sourceNote = notes.find(n => n.id === noteId)
-                        if (!sourceNote) return null
-                        return (
-                          <div
-                            key={noteId}
-                            className="detail-ai-source-item"
-                            onClick={() => handleRelatedNoteClick(noteId)}
-                          >
-                            <span className="source-item-content">{truncateText(sourceNote.content, 30)}</span>
-                            <span className="source-item-time">{formatTime(sourceNote.createdAt)}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 相关快记 */}
-            {relatedNotes.length > 0 && (
-              <div className="detail-related-section">
-                <div className="detail-related-header">
-                  <span className="detail-related-title">相关快记</span>
-                  <button
-                    className="detail-related-more"
-                    onClick={() => setShowRelatedModal(true)}
-                  >
-                    查看全部
-                  </button>
-                </div>
-                <div className="related-cards">
-                  {relatedNotes.slice(0, 3).map(note => (
-                    <div
-                      key={note.id}
-                      className="related-card"
-                      onClick={() => handleRelatedNoteClick(note.id)}
+            {/* 内容区 */}
+            <div className="detail-content-section">
+              {editingNoteId === selectedNote.id ? (
+                /* 编辑模式 */
+                <div className="detail-edit">
+                  <textarea
+                    ref={editTextareaRef}
+                    className="detail-edit-textarea"
+                    value={editingContent}
+                    onChange={(e) => setEditingContent(e.target.value)}
+                    onKeyDown={handleEditKeyDown}
+                    placeholder="快记内容不能为空"
+                  />
+                  <div className="detail-edit-hint">Ctrl/Cmd + Enter 保存，Esc 取消</div>
+                  <div className="detail-edit-actions">
+                    <button className="detail-btn secondary" onClick={handleCancelEdit}>取消</button>
+                    <button
+                      className="detail-btn primary"
+                      onClick={handleSaveEdit}
+                      disabled={!editingContent.trim()}
                     >
-                      <div className="related-card-content">{truncateText(note.content)}</div>
-                      <div className="related-card-time">{formatTime(note.createdAt)}</div>
-                    </div>
-                  ))}
+                      保存
+                    </button>
+                  </div>
                 </div>
+              ) : (
+                /* 查看模式 */
+                <div className="detail-view">
+                  <div className="detail-note-content">{selectedNote.content}</div>
+                </div>
+              )}
+            </div>
+
+            {/* 操作按钮 */}
+            {editingNoteId !== selectedNote.id && (
+              <div className="detail-actions">
+                <button className="detail-btn" onClick={handleStartEdit}>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                  </svg>
+                  编辑
+                </button>
+                <button className="detail-btn danger" onClick={handleRequestDelete}>
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                  </svg>
+                  删除
+                </button>
               </div>
             )}
           </div>
         </aside>
       )}
 
-      {/* 5. 相关快记弹窗 */}
-      {showRelatedModal && selectedNote && (
-        <div className="modal-overlay" onClick={() => setShowRelatedModal(false)}>
-          <div className="related-modal" onClick={e => e.stopPropagation()}>
-            <div className="related-modal-header">
-              <h3 className="related-modal-title">相关快记</h3>
-              <button
-                className="related-modal-close"
-                onClick={() => setShowRelatedModal(false)}
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                </svg>
-              </button>
+      {/* 5. 删除确认弹窗 */}
+      {deleteConfirmId && (
+        <div className="modal-overlay" onClick={handleCancelDelete}>
+          <div className="modal-dialog" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">确认删除</h3>
             </div>
-            <div className="related-modal-content">
-              {relatedNotes.map(note => (
-                <div
-                  key={note.id}
-                  className="related-modal-card"
-                  onClick={() => handleRelatedNoteClick(note.id)}
-                >
-                  <div className="related-modal-card-content">{note.content}</div>
-                  <div className="related-modal-card-meta">
-                    <span className="related-modal-card-time">{formatFullTime(note.createdAt)}</span>
-                    {note.aiStatus === AI_STATUS.DONE && (
-                      <span className="related-modal-card-ai">AI 已回应</span>
-                    )}
-                  </div>
-                </div>
-              ))}
+            <div className="modal-body">
+              <p>确定要删除这条快记吗？此操作不可撤销。</p>
+            </div>
+            <div className="modal-footer">
+              <button className="modal-btn" onClick={handleCancelDelete}>取消</button>
+              <button className="modal-btn danger" onClick={handleConfirmDelete}>删除</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 6. 设置面板 */}
+      {/* 6. 新建主题弹窗 */}
+      {showNewTopic && (
+        <div className="modal-overlay" onClick={() => setShowNewTopic(false)}>
+          <div className="modal-dialog" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">新建主题</h3>
+            </div>
+            <div className="modal-body">
+              <input
+                type="text"
+                className="modal-input"
+                value={newTopicTitle}
+                onChange={(e) => setNewTopicTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newTopicTitle.trim()) {
+                    handleCreateTopic()
+                  }
+                }}
+                placeholder="输入主题名称"
+                autoFocus
+              />
+            </div>
+            <div className="modal-footer">
+              <button className="modal-btn" onClick={() => setShowNewTopic(false)}>取消</button>
+              <button
+                className="modal-btn primary"
+                onClick={handleCreateTopic}
+                disabled={!newTopicTitle.trim()}
+              >
+                创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7. 移动主题弹窗 */}
+      {showMoveTopic && selectedNote && (
+        <div className="modal-overlay" onClick={() => setShowMoveTopic(false)}>
+          <div className="modal-dialog" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">移动到主题</h3>
+            </div>
+            <div className="modal-body">
+              <div className="topic-select-list">
+                {topics.map(topic => (
+                  <div
+                    key={topic.id}
+                    className={`topic-select-item ${topic.id === selectedNote.topicId ? 'current' : ''}`}
+                    onClick={() => handleMoveTopic(topic.id)}
+                  >
+                    <div className="topic-select-avatar">{topic.title.charAt(0)}</div>
+                    <span className="topic-select-title">{topic.title}</span>
+                    {topic.id === selectedNote.topicId && (
+                      <span className="topic-select-badge">当前</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="modal-btn" onClick={() => setShowMoveTopic(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. 设置面板 */}
       <SettingsPanel
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         onDataChange={handleDataChange}
-        onOpenClassification={() => setShowClassification(true)}
-      />
-
-      {/* 7. AI 自动分类面板 */}
-      <ClassificationPanel
-        isOpen={showClassification}
-        onClose={() => setShowClassification(false)}
-        notes={notes}
-        topics={topics}
-        onDataChange={handleDataChange}
-        saveTopics={setTopics}
-        saveNotes={setNotes}
       />
     </div>
   )

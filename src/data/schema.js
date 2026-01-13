@@ -211,10 +211,11 @@ export function validateAIResponse(response) {
  */
 export function validateExportData(data) {
   if (!data || typeof data !== 'object') return false
-  if (!data.version || typeof data.version !== 'string') return false
   if (!Array.isArray(data.topics)) return false
   if (!Array.isArray(data.notes)) return false
-  if (!Array.isArray(data.aiResponses)) return false
+
+  // aiResponses 是可选的
+  if (data.aiResponses && !Array.isArray(data.aiResponses)) return false
 
   // 验证每个实体
   for (const topic of data.topics) {
@@ -223,8 +224,10 @@ export function validateExportData(data) {
   for (const note of data.notes) {
     if (!validateNote(note)) return false
   }
-  for (const response of data.aiResponses) {
-    if (!validateAIResponse(response)) return false
+  if (data.aiResponses) {
+    for (const response of data.aiResponses) {
+      if (!validateAIResponse(response)) return false
+    }
   }
 
   return true
