@@ -100,10 +100,8 @@ function App() {
   // 移动快记弹窗
   const [showMoveTopic, setShowMoveTopic] = useState(false)
 
-  // 引用弹窗
-  const [showReferenceModal, setShowReferenceModal] = useState(false)
-  const [referenceContent, setReferenceContent] = useState('')
-  const [referenceImages, setReferenceImages] = useState([])
+  // 延展模式（取代弹窗，使用底部输入框）
+  const [extendingNoteId, setExtendingNoteId] = useState(null)
 
   // 右键菜单
   const [contextMenu, setContextMenu] = useState(null) // { x, y, noteId }
@@ -113,10 +111,13 @@ function App() {
   const editTextareaRef = useRef(null)
   const imageInputRef = useRef(null)
   const editImageInputRef = useRef(null)
-  const referenceImageInputRef = useRef(null)
+  const inputFieldRef = useRef(null)
 
   // 获取选中的快记
   const selectedNote = notes.find(n => n.id === selectedNoteId)
+
+  // 获取正在延展的快记
+  const extendingNote = extendingNoteId ? notes.find(n => n.id === extendingNoteId) : null
 
   // 获取引用关系
   const getReferencesFrom = (noteId) => {
@@ -232,10 +233,10 @@ function App() {
     return notes.filter(n => n.topicId === topicId).length
   }
 
-  // 当前主题的快记（按更新/创建时间倒序，最新在最上面）
+  // 当前主题的快记（按创建时间正序，最新在最下面靠近输入框）
   const currentNotes = notes
     .filter(n => n.topicId === selectedTopicId)
-    .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt))
+    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
 
   // ==================== 图片处理 ====================
 
@@ -256,7 +257,7 @@ function App() {
 
   // ==================== 快记 CRUD ====================
 
-  // 创建快记
+  // 创建快记（支持延展模式）
   const canSend = inputValue.trim().length > 0 || inputImages.length > 0
 
   const handleSend = () => {
@@ -272,7 +273,20 @@ function App() {
       images: inputImages
     })
 
-    setNotes(prev => [newNote, ...prev])
+    setNotes(prev => [...prev, newNote])
+
+    // 如果是延展模式，创建引用关系
+    if (extendingNoteId) {
+      const newReference = createReference({
+        sourceNoteId: newNote.id,
+        targetNoteId: extendingNoteId
+      })
+      setReferences(prev => [...prev, newReference])
+      setExtendingNoteId(null)
+    }
+
+    // 滚动到底部
+    setTimeout(scrollToBottom, 50)
   }
 
   const handleKeyDown = (e) => {
@@ -299,7 +313,6 @@ function App() {
     setEditingContent('')
     setEditingImages([])
     setShowMoveTopic(false)
-    setShowReferenceModal(false)
   }
 
   // 开始编辑快记
@@ -415,42 +428,25 @@ function App() {
     setShowMoveTopic(false)
   }
 
-  // ==================== 引用功能 ====================
+  // ==================== 延展功能 ====================
 
-  // 打开引用弹窗
-  const handleOpenReference = () => {
-    setShowReferenceModal(true)
-    setReferenceContent('')
-    setReferenceImages([])
+  // 开始延展（激活延展模式，聚焦输入框）
+  const handleStartExtend = (noteId) => {
+    const targetNote = noteId ? notes.find(n => n.id === noteId) : selectedNote
+    if (!targetNote) return
+
+    setExtendingNoteId(targetNote.id)
+    // 聚焦输入框
+    setTimeout(() => {
+      if (inputFieldRef.current) {
+        inputFieldRef.current.focus()
+      }
+    }, 100)
   }
 
-  // 创建引用
-  const handleCreateReference = () => {
-    if (!selectedNote || (!referenceContent.trim() && referenceImages.length === 0)) return
-
-    // 创建新快记
-    const newNote = createNote({
-      topicId: selectedTopicId,
-      content: referenceContent.trim(),
-      images: referenceImages
-    })
-
-    // 创建引用关系
-    const newReference = createReference({
-      sourceNoteId: newNote.id,
-      targetNoteId: selectedNote.id
-    })
-
-    setNotes(prev => [newNote, ...prev])
-    setReferences(prev => [...prev, newReference])
-
-    // 关闭弹窗
-    setShowReferenceModal(false)
-    setReferenceContent('')
-    setReferenceImages([])
-
-    // 选中新创建的快记
-    setSelectedNoteId(newNote.id)
+  // 取消延展模式
+  const handleCancelExtend = () => {
+    setExtendingNoteId(null)
   }
 
   // 跳转到引用的快记
@@ -499,8 +495,7 @@ function App() {
         setTimeout(() => handleStartEdit(), 100)
         break
       case 'extend':
-        setSelectedNoteId(noteId)
-        setTimeout(() => handleOpenReference(), 100)
+        handleStartExtend(noteId)
         break
       case 'move':
         setSelectedNoteId(noteId)
@@ -659,54 +654,75 @@ function App() {
         </div>
 
         {/* 输入区 */}
-        <div className="input-bar">
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            style={{ display: 'none' }}
-            onChange={(e) => handleImageUpload(e.target.files, setInputImages, inputImages)}
-          />
-          <button
-            className="input-icon-btn"
-            onClick={() => imageInputRef.current?.click()}
-            title="上传图片"
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
-            </svg>
-          </button>
-          <div className="input-wrapper">
-            {inputImages.length > 0 && (
-              <div className="input-images-preview">
-                {inputImages.map((img, idx) => (
-                  <div key={idx} className="input-image-item">
-                    <img src={img} alt="" />
-                    <button
-                      className="input-image-remove"
-                      onClick={() => handleRemoveImage(idx, setInputImages, inputImages)}
-                    >×</button>
-                  </div>
-                ))}
+        <div className={`input-bar ${extendingNote ? 'extending-mode' : ''}`}>
+          {/* 延展提示条 */}
+          {extendingNote && (
+            <div className="input-extending-hint">
+              <div className="extending-hint-content">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19 15l-6 6-1.42-1.42L15.17 16H4V4h2v10h9.17l-3.59-3.58L13 9l6 6z"/>
+                </svg>
+                <span className="extending-label">延展自：</span>
+                <span className="extending-source">{truncateText(extendingNote.content, 30)}</span>
               </div>
-            )}
-            <textarea
-              className="input-field"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="记录此刻想法…"
-              rows={1}
+              <button className="extending-cancel" onClick={handleCancelExtend}>
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+              </button>
+            </div>
+          )}
+
+          <div className="input-main">
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              style={{ display: 'none' }}
+              onChange={(e) => handleImageUpload(e.target.files, setInputImages, inputImages)}
             />
+            <button
+              className="input-icon-btn"
+              onClick={() => imageInputRef.current?.click()}
+              title="上传图片"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+              </svg>
+            </button>
+            <div className="input-wrapper">
+              {inputImages.length > 0 && (
+                <div className="input-images-preview">
+                  {inputImages.map((img, idx) => (
+                    <div key={idx} className="input-image-item">
+                      <img src={img} alt="" />
+                      <button
+                        className="input-image-remove"
+                        onClick={() => handleRemoveImage(idx, setInputImages, inputImages)}
+                      >×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <textarea
+                ref={inputFieldRef}
+                className="input-field"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={extendingNote ? "写下延展的想法…" : "记录此刻想法…"}
+                rows={2}
+              />
+            </div>
+            <button
+              className={`send-btn ${canSend ? 'active' : ''} ${extendingNote ? 'extending' : ''}`}
+              disabled={!canSend}
+              onClick={handleSend}
+            >
+              {extendingNote ? '延展' : '发送'}
+            </button>
           </div>
-          <button
-            className={`send-btn ${canSend ? 'active' : ''}`}
-            disabled={!canSend}
-            onClick={handleSend}
-          >
-            发送
-          </button>
         </div>
       </main>
 
@@ -904,7 +920,7 @@ function App() {
             {/* 操作按钮 */}
             {editingNoteId !== selectedNote.id && (
               <div className="detail-actions">
-                <button className="detail-btn" onClick={handleOpenReference}>
+                <button className="detail-btn" onClick={() => handleStartExtend()}>
                   <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
                     <path d="M19 15l-6 6-1.42-1.42L15.17 16H4V4h2v10h9.17l-3.59-3.58L13 9l6 6z"/>
                   </svg>
@@ -1013,83 +1029,7 @@ function App() {
         </div>
       )}
 
-      {/* 8. 延展弹窗 */}
-      {showReferenceModal && selectedNote && (
-        <div className="modal-overlay" onClick={() => setShowReferenceModal(false)}>
-          <div className="modal-dialog reference-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">延展这条快记</h3>
-            </div>
-            <div className="modal-body">
-              {/* 被引用的快记预览 */}
-              <div className="reference-target-preview">
-                <div className="reference-target-label">原快记</div>
-                <div className="reference-target-content">
-                  {truncateText(selectedNote.content, 100)}
-                </div>
-              </div>
-
-              {/* 新快记输入 */}
-              <div className="reference-input-section">
-                <label className="reference-input-label">你的想法</label>
-                <textarea
-                  className="reference-textarea"
-                  value={referenceContent}
-                  onChange={(e) => setReferenceContent(e.target.value)}
-                  placeholder="写下你的想法..."
-                  autoFocus
-                />
-
-                {/* 图片上传 */}
-                <input
-                  ref={referenceImageInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  style={{ display: 'none' }}
-                  onChange={(e) => handleImageUpload(e.target.files, setReferenceImages, referenceImages)}
-                />
-
-                {referenceImages.length > 0 && (
-                  <div className="reference-images-preview">
-                    {referenceImages.map((img, idx) => (
-                      <div key={idx} className="reference-image-item">
-                        <img src={img} alt="" />
-                        <button
-                          className="reference-image-remove"
-                          onClick={() => handleRemoveImage(idx, setReferenceImages, referenceImages)}
-                        >×</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <button
-                  className="reference-add-image-btn"
-                  onClick={() => referenceImageInputRef.current?.click()}
-                >
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                    <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
-                  </svg>
-                  添加图片
-                </button>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="modal-btn" onClick={() => setShowReferenceModal(false)}>取消</button>
-              <button
-                className="modal-btn primary"
-                onClick={handleCreateReference}
-                disabled={!referenceContent.trim() && referenceImages.length === 0}
-              >
-                创建延展
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 9. 右键菜单 */}
+      {/* 8. 右键菜单 */}
       {contextMenu && (
         <>
           <div className="context-menu-overlay" onClick={closeContextMenu} />
@@ -1136,7 +1076,7 @@ function App() {
         </>
       )}
 
-      {/* 10. 设置面板 */}
+      {/* 9. 设置面板 */}
       <SettingsPanel
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}

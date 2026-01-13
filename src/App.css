@@ -955,22 +955,94 @@ body {
   height: 13px;
 }
 
-/* ==================== 输入区 ==================== */
+/* ==================== 输入区（加高版） ==================== */
 .input-bar {
-  padding: 16px 24px 20px;
+  padding: 0;
   background: var(--color-surface);
   border-top: 1px solid var(--color-border-light);
   display: flex;
+  flex-direction: column;
+}
+
+/* 延展模式整体样式 */
+.input-bar.extending-mode {
+  border-top-color: var(--color-primary);
+  box-shadow: 0 -4px 20px rgba(58, 157, 110, 0.1);
+}
+
+/* 延展提示条 */
+.input-extending-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px;
+  background: linear-gradient(135deg, rgba(58, 157, 110, 0.08) 0%, rgba(58, 157, 110, 0.04) 100%);
+  border-bottom: 1px solid rgba(58, 157, 110, 0.15);
+}
+
+.extending-hint-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-sm);
+}
+
+.extending-hint-content svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-primary);
+}
+
+.extending-label {
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.extending-source {
+  color: var(--color-text-secondary);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extending-cancel {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast);
+}
+
+.extending-cancel:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.extending-cancel svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-tertiary);
+}
+
+/* 输入主体区 */
+.input-main {
+  display: flex;
   align-items: flex-end;
   gap: 12px;
+  padding: 16px 24px 20px;
 }
 
 .input-icon-btn {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border: none;
   background: var(--color-bg);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -984,33 +1056,46 @@ body {
 }
 
 .input-icon-btn svg {
-  width: 18px;
-  height: 18px;
-  color: var(--color-text-tertiary);
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-secondary);
 }
 
 .input-wrapper {
   flex: 1;
   background: var(--color-bg);
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  border: 2px solid transparent;
   transition: all var(--transition-fast);
+  min-height: 56px;
 }
 
 .input-wrapper:focus-within {
   background: var(--color-surface);
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-light);
+  box-shadow: 0 0 0 4px var(--color-primary-light);
+}
+
+/* 延展模式输入框样式 */
+.extending-mode .input-wrapper {
+  border-color: rgba(58, 157, 110, 0.3);
+  background: rgba(58, 157, 110, 0.02);
+}
+
+.extending-mode .input-wrapper:focus-within {
+  border-color: var(--color-primary);
+  background: var(--color-surface);
 }
 
 .input-field {
   width: 100%;
-  padding: 10px 14px;
+  min-height: 52px;
+  padding: 14px 18px;
   border: none;
   background: transparent;
   font-family: inherit;
-  font-size: var(--font-size-base);
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.6;
   color: var(--color-text);
   resize: none;
   outline: none;
@@ -1021,12 +1106,13 @@ body {
 }
 
 .send-btn {
-  padding: 9px 18px;
+  padding: 12px 24px;
+  min-height: 44px;
   border: none;
   background: var(--color-bg);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   font-family: inherit;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--color-text-tertiary);
   cursor: not-allowed;
@@ -1041,6 +1127,16 @@ body {
 }
 
 .send-btn.active:hover {
+  background: #2d8a5f;
+}
+
+/* 延展模式发送按钮 */
+.send-btn.extending {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.send-btn.extending:not(:disabled):hover {
   background: #2d8a5f;
 }
 
