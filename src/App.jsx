@@ -105,6 +105,9 @@ function App() {
   const [referenceContent, setReferenceContent] = useState('')
   const [referenceImages, setReferenceImages] = useState([])
 
+  // 右键菜单
+  const [contextMenu, setContextMenu] = useState(null) // { x, y, noteId }
+
   // Refs
   const bubbleAreaRef = useRef(null)
   const editTextareaRef = useRef(null)
@@ -134,6 +137,20 @@ function App() {
 
   const hasReferences = (noteId) => {
     return references.some(r => r.sourceNoteId === noteId || r.targetNoteId === noteId)
+  }
+
+  // 获取当前快记引用的原快记（只取第一个）
+  const getSourceNote = (noteId) => {
+    const ref = references.find(r => r.sourceNoteId === noteId)
+    if (ref) {
+      return notes.find(n => n.id === ref.targetNoteId)
+    }
+    return null
+  }
+
+  // 获取引用当前快记的数量
+  const getExtendedCount = (noteId) => {
+    return references.filter(r => r.targetNoteId === noteId).length
   }
 
   // ==================== 数据初始化与持久化 ====================
@@ -445,6 +462,59 @@ function App() {
     }
   }
 
+  // ==================== 右键菜单 ====================
+
+  // 打开右键菜单
+  const handleContextMenu = (e, noteId) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      noteId
+    })
+  }
+
+  // 关闭右键菜单
+  const closeContextMenu = () => {
+    setContextMenu(null)
+  }
+
+  // 右键菜单操作
+  const handleContextAction = (action) => {
+    if (!contextMenu) return
+    const noteId = contextMenu.noteId
+    const note = notes.find(n => n.id === noteId)
+
+    closeContextMenu()
+
+    switch (action) {
+      case 'copy':
+        if (note) {
+          navigator.clipboard.writeText(note.content)
+        }
+        break
+      case 'edit':
+        setSelectedNoteId(noteId)
+        setTimeout(() => handleStartEdit(), 100)
+        break
+      case 'extend':
+        setSelectedNoteId(noteId)
+        setTimeout(() => handleOpenReference(), 100)
+        break
+      case 'move':
+        setSelectedNoteId(noteId)
+        setTimeout(() => setShowMoveTopic(true), 100)
+        break
+      case 'delete':
+        setSelectedNoteId(noteId)
+        setTimeout(() => setDeleteConfirmId(noteId), 100)
+        break
+      default:
+        break
+    }
+  }
+
   // ==================== 渲染 ====================
 
   return (
@@ -516,41 +586,74 @@ function App() {
             </div>
           ) : (
             <div className="bubble-list">
-              {currentNotes.map(note => (
-                <div
-                  key={note.id}
-                  className={`bubble-item ${selectedNoteId === note.id ? 'selected' : ''}`}
-                  onClick={() => handleNoteClick(note.id)}
-                >
-                  <div className="bubble-content">{truncateText(note.content, 100)}</div>
+              {currentNotes.map(note => {
+                const sourceNote = getSourceNote(note.id)
+                const extendedCount = getExtendedCount(note.id)
+                const imageCount = note.images?.length || 0
 
-                  {/* 图片预览 */}
-                  {note.images && note.images.length > 0 && (
-                    <div className="bubble-images-preview">
-                      {note.images.slice(0, 3).map((img, idx) => (
-                        <img key={idx} src={img} alt="" className="bubble-image-thumb" />
-                      ))}
-                      {note.images.length > 3 && (
-                        <span className="bubble-images-more">+{note.images.length - 3}</span>
+                return (
+                  <div
+                    key={note.id}
+                    className={`bubble-item ${selectedNoteId === note.id ? 'selected' : ''}`}
+                    onClick={() => handleNoteClick(note.id)}
+                    onContextMenu={(e) => handleContextMenu(e, note.id)}
+                  >
+                    {/* 引用来源提示 - 在气泡顶部 */}
+                    {sourceNote && (
+                      <div className="bubble-reference-hint">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/>
+                        </svg>
+                        <span className="hint-text">延展自</span>
+                        <span
+                          className="hint-source"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleGoToNote(sourceNote.id)
+                          }}
+                        >
+                          {truncateText(sourceNote.content, 20)}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* 快记内容 */}
+                    <div className="bubble-content">{truncateText(note.content, 100)}</div>
+
+                    {/* 图片网格展示 */}
+                    {imageCount > 0 && (
+                      <div className={`bubble-images count-${Math.min(imageCount, 3)}${imageCount > 3 ? ' count-many' : ''}`}>
+                        {note.images.slice(0, 4).map((img, idx) => (
+                          <div key={idx} className="bubble-image-item">
+                            <img src={img} alt="" />
+                            {idx === 3 && imageCount > 4 && (
+                              <div className="bubble-images-more-overlay">+{imageCount - 4}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* 被延展提示 - 在内容下方 */}
+                    {extendedCount > 0 && (
+                      <div className="bubble-extended-hint">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M19 15l-6 6-1.42-1.42L15.17 16H4V4h2v10h9.17l-3.59-3.58L13 9l6 6z"/>
+                        </svg>
+                        <span>有 {extendedCount} 条延展</span>
+                      </div>
+                    )}
+
+                    {/* 元信息 */}
+                    <div className="bubble-meta">
+                      <span className="bubble-time">{formatTime(note.updatedAt || note.createdAt)}</span>
+                      {note.updatedAt && note.updatedAt !== note.createdAt && (
+                        <span className="bubble-edited">已编辑</span>
                       )}
                     </div>
-                  )}
-
-                  <div className="bubble-meta">
-                    <span className="bubble-time">{formatTime(note.updatedAt || note.createdAt)}</span>
-                    {note.updatedAt && note.updatedAt !== note.createdAt && (
-                      <span className="bubble-edited">已编辑</span>
-                    )}
-                    {hasReferences(note.id) && (
-                      <span className="bubble-reference-badge" title="有引用关系">
-                        <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-                          <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
-                        </svg>
-                      </span>
-                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -732,14 +835,17 @@ function App() {
             {/* 引用关系展示 */}
             {editingNoteId !== selectedNote.id && (
               <>
-                {/* 当前快记引用了哪些快记 */}
+                {/* 区块一：引用来源 - 当前快记延展自哪条 */}
                 {getReferencesFrom(selectedNote.id).length > 0 && (
-                  <div className="detail-references-section">
+                  <div className="detail-references-section source-section">
                     <div className="detail-references-header">
-                      <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                        <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
-                      </svg>
-                      <span>引用了</span>
+                      <div className="detail-references-icon">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/>
+                        </svg>
+                      </div>
+                      <span className="detail-references-title">引用来源</span>
+                      <span className="detail-references-subtitle">这条快记延展自</span>
                     </div>
                     <div className="detail-references-list">
                       {getReferencesFrom(selectedNote.id).map(note => (
@@ -748,22 +854,30 @@ function App() {
                           className="detail-reference-card"
                           onClick={() => handleGoToNote(note.id)}
                         >
-                          <div className="reference-card-content">{truncateText(note.content, 60)}</div>
-                          <div className="reference-card-time">{formatTime(note.createdAt)}</div>
+                          <div className="reference-card-content">{truncateText(note.content, 80)}</div>
+                          <div className="reference-card-footer">
+                            <span className="reference-card-time">{formatFullTime(note.createdAt)}</span>
+                            <svg className="reference-card-arrow" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                            </svg>
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {/* 哪些快记引用了当前快记 */}
+                {/* 区块二：后续延展 - 哪些快记延展了当前快记 */}
                 {getReferencesTo(selectedNote.id).length > 0 && (
-                  <div className="detail-references-section">
+                  <div className="detail-references-section extended-section">
                     <div className="detail-references-header">
-                      <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                        <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
-                      </svg>
-                      <span>被引用</span>
+                      <div className="detail-references-icon">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M19 15l-6 6-1.42-1.42L15.17 16H4V4h2v10h9.17l-3.59-3.58L13 9l6 6z"/>
+                        </svg>
+                      </div>
+                      <span className="detail-references-title">后续延展</span>
+                      <span className="detail-references-subtitle">{getReferencesTo(selectedNote.id).length} 条思路延展</span>
                     </div>
                     <div className="detail-references-list">
                       {getReferencesTo(selectedNote.id).map(note => (
@@ -772,8 +886,13 @@ function App() {
                           className="detail-reference-card"
                           onClick={() => handleGoToNote(note.id)}
                         >
-                          <div className="reference-card-content">{truncateText(note.content, 60)}</div>
-                          <div className="reference-card-time">{formatTime(note.createdAt)}</div>
+                          <div className="reference-card-content">{truncateText(note.content, 80)}</div>
+                          <div className="reference-card-footer">
+                            <span className="reference-card-time">{formatFullTime(note.createdAt)}</span>
+                            <svg className="reference-card-arrow" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                            </svg>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -787,9 +906,9 @@ function App() {
               <div className="detail-actions">
                 <button className="detail-btn" onClick={handleOpenReference}>
                   <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                    <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
+                    <path d="M19 15l-6 6-1.42-1.42L15.17 16H4V4h2v10h9.17l-3.59-3.58L13 9l6 6z"/>
                   </svg>
-                  引用
+                  延展
                 </button>
                 <button className="detail-btn" onClick={handleStartEdit}>
                   <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
@@ -894,17 +1013,17 @@ function App() {
         </div>
       )}
 
-      {/* 8. 引用弹窗 */}
+      {/* 8. 延展弹窗 */}
       {showReferenceModal && selectedNote && (
         <div className="modal-overlay" onClick={() => setShowReferenceModal(false)}>
           <div className="modal-dialog reference-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">引用这条快记</h3>
+              <h3 className="modal-title">延展这条快记</h3>
             </div>
             <div className="modal-body">
               {/* 被引用的快记预览 */}
               <div className="reference-target-preview">
-                <div className="reference-target-label">引用内容</div>
+                <div className="reference-target-label">原快记</div>
                 <div className="reference-target-content">
                   {truncateText(selectedNote.content, 100)}
                 </div>
@@ -963,14 +1082,61 @@ function App() {
                 onClick={handleCreateReference}
                 disabled={!referenceContent.trim() && referenceImages.length === 0}
               >
-                创建引用
+                创建延展
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 9. 设置面板 */}
+      {/* 9. 右键菜单 */}
+      {contextMenu && (
+        <>
+          <div className="context-menu-overlay" onClick={closeContextMenu} />
+          <div
+            className="context-menu"
+            style={{
+              left: Math.min(contextMenu.x, window.innerWidth - 180),
+              top: Math.min(contextMenu.y, window.innerHeight - 320)
+            }}
+          >
+            <div className="context-menu-item" onClick={() => handleContextAction('copy')}>
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+              </svg>
+              复制
+            </div>
+            <div className="context-menu-item" onClick={() => handleContextAction('edit')}>
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+              </svg>
+              重新编辑
+            </div>
+            <div className="context-menu-item" onClick={() => handleContextAction('extend')}>
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 15l-6 6-1.42-1.42L15.17 16H4V4h2v10h9.17l-3.59-3.58L13 9l6 6z"/>
+              </svg>
+              延展
+            </div>
+            <div className="context-menu-divider" />
+            <div className="context-menu-item" onClick={() => handleContextAction('move')}>
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/>
+              </svg>
+              变更主题
+            </div>
+            <div className="context-menu-divider" />
+            <div className="context-menu-item danger" onClick={() => handleContextAction('delete')}>
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+              </svg>
+              删除
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 10. 设置面板 */}
       <SettingsPanel
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
